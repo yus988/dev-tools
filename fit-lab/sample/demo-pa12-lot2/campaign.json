@@ -1,0 +1,116 @@
+{
+  "schema": "fit-lab/1",
+  "id": "demo-pa12-lot2",
+  "title": "Demo case — PA12 lot 2 (sample data)",
+  "project": "demo",
+  "material": "PA12 Black",
+  "process": "MJF",
+  "vendor": "Vendor B",
+  "ordered": "2026-09-20",
+  "received": "2026-09-29",
+  "variants": [
+    {
+      "id": "V1",
+      "label": "tight",
+      "params": {
+        "fit_magnet_allowance": 0.3
+      }
+    },
+    {
+      "id": "V2",
+      "label": "nominal",
+      "params": {
+        "fit_magnet_allowance": 0.35
+      }
+    }
+  ],
+  "images": [
+    {
+      "id": "img01",
+      "file": "images/img01.png",
+      "caption": "Placeholder top view: magnet pocket (left), screw boss (right)",
+      "width": 800,
+      "height": 600
+    }
+  ],
+  "items": [
+    {
+      "no": 1,
+      "name": "磁石穴の幅 (8 mm 方向)",
+      "part": "upper case",
+      "feature": "pocket_magnet",
+      "kind": "hole",
+      "direction": "X",
+      "unit": "mm",
+      "cad": {
+        "V1": 8.3,
+        "V2": 8.35
+      },
+      "mate": {
+        "name": "magnet 8x4x2",
+        "value": 8.0
+      },
+      "image": "img01",
+      "annotation": {
+        "type": "dim",
+        "points": [
+          [
+            0.3125,
+            0.38
+          ],
+          [
+            0.5,
+            0.38
+          ]
+        ],
+        "label_pos": [
+          0.406,
+          0.31
+        ]
+      },
+      "measurements": [
+        {
+          "variant": "V1",
+          "value": 8.19,
+          "date": "2026-10-01",
+          "by": "user",
+          "method": "caliper"
+        },
+        {
+          "variant": "V2",
+          "value": 8.25,
+          "date": "2026-10-01",
+          "by": "user",
+          "method": "caliper"
+        }
+      ]
+    },
+    {
+      "no": 2,
+      "name": "ピン径",
+      "part": "lower case",
+      "feature": "pin",
+      "kind": "boss",
+      "direction": "XY",
+      "unit": "mm",
+      "cad": {
+        "*": 1.8
+      },
+      "image": "img01",
+      "annotation": {
+        "type": "point",
+        "points": [
+          [
+            0.7,
+            0.5
+          ]
+        ],
+        "label_pos": [
+          0.82,
+          0.64
+        ]
+      },
+      "measurements": []
+    }
+  ]
+}

@@ -1,0 +1,354 @@
+{
+  "schema": "fit-lab/1",
+  "id": "demo-pa12-lot1",
+  "title": "Demo case — PA12 lot 1 (sample data)",
+  "project": "demo",
+  "material": "PA12 Black",
+  "process": "MJF",
+  "vendor": "Vendor A",
+  "ordered": "2026-09-01",
+  "received": "2026-09-10",
+  "variants": [
+    {
+      "id": "V1",
+      "label": "tight",
+      "params": {
+        "fit_magnet_allowance": 0.3
+      }
+    },
+    {
+      "id": "V2",
+      "label": "nominal",
+      "params": {
+        "fit_magnet_allowance": 0.35
+      }
+    },
+    {
+      "id": "V3",
+      "label": "loose",
+      "params": {
+        "fit_magnet_allowance": 0.4
+      }
+    }
+  ],
+  "images": [
+    {
+      "id": "img01",
+      "file": "images/img01.png",
+      "caption": "Placeholder top view: magnet pocket (left), screw boss (right)",
+      "width": 800,
+      "height": 600
+    }
+  ],
+  "items": [
+    {
+      "no": 1,
+      "name": "磁石穴の幅 (8 mm 方向)",
+      "part": "upper case",
+      "feature": "pocket_magnet",
+      "kind": "hole",
+      "direction": "X",
+      "unit": "mm",
+      "cad": {
+        "V1": 8.3,
+        "V2": 8.35,
+        "V3": 8.4
+      },
+      "mate": {
+        "name": "magnet 8x4x2",
+        "value": 8.0
+      },
+      "image": "img01",
+      "annotation": {
+        "type": "dim",
+        "points": [
+          [
+            0.3125,
+            0.38
+          ],
+          [
+            0.5,
+            0.38
+          ]
+        ],
+        "label_pos": [
+          0.406,
+          0.31
+        ]
+      },
+      "measurements": [
+        {
+          "variant": "V1",
+          "value": 8.15,
+          "date": "2026-09-12",
+          "by": "user",
+          "method": "caliper"
+        },
+        {
+          "variant": "V1",
+          "value": 8.17,
+          "date": "2026-09-13",
+          "by": "user",
+          "method": "caliper",
+          "note": "re-measured, jaw tip"
+        },
+        {
+          "variant": "V2",
+          "value": 8.22,
+          "date": "2026-09-12",
+          "by": "user",
+          "method": "caliper"
+        },
+        {
+          "variant": "V3",
+          "value": 8.26,
+          "date": "2026-09-12",
+          "by": "user",
+          "method": "caliper"
+        }
+      ]
+    },
+    {
+      "no": 2,
+      "name": "磁石穴の奥行 (4 mm 方向)",
+      "part": "upper case",
+      "feature": "pocket_magnet",
+      "kind": "hole",
+      "direction": "Y",
+      "unit": "mm",
+      "cad": {
+        "V1": 4.3,
+        "V2": 4.35,
+        "V3": 4.4
+      },
+      "mate": {
+        "name": "magnet 8x4x2",
+        "value": 4.0
+      },
+      "image": "img01",
+      "annotation": {
+        "type": "dim",
+        "points": [
+          [
+            0.29,
+            0.4
+          ],
+          [
+            0.29,
+            0.6
+          ]
+        ]
+      },
+      "measurements": [
+        {
+          "variant": "V1",
+          "value": 4.18,
+          "date": "2026-09-12",
+          "by": "user",
+          "method": "caliper"
+        },
+        {
+          "variant": "V2",
+          "value": 4.21,
+          "date": "2026-09-12",
+          "by": "user",
+          "method": "caliper",
+          "provisional": true,
+          "note": "burr on edge"
+        }
+      ]
+    },
+    {
+      "no": 3,
+      "name": "ボス穴径",
+      "part": "upper case",
+      "feature": "boss_hole",
+      "kind": "hole",
+      "direction": "XY",
+      "unit": "mm",
+      "cad": {
+        "V1": 3.3,
+        "V2": 3.35,
+        "V3": 3.4
+      },
+      "mate": {
+        "name": "M3 screw",
+        "value": 3.0
+      },
+      "image": "img01",
+      "annotation": {
+        "type": "dim",
+        "points": [
+          [
+            0.644,
+            0.5
+          ],
+          [
+            0.756,
+            0.5
+          ]
+        ],
+        "label_pos": [
+          0.7,
+          0.37
+        ]
+      },
+      "measurements": [
+        {
+          "variant": "V1",
+          "value": 3.12,
+          "date": "2026-09-12",
+          "by": "user",
+          "method": "caliper"
+        },
+        {
+          "variant": "V2",
+          "value": 3.2,
+          "date": "2026-09-12",
+          "by": "user",
+          "method": "caliper"
+        },
+        {
+          "variant": "V3",
+          "value": 3.21,
+          "date": "2026-09-12",
+          "by": "user",
+          "method": "caliper"
+        }
+      ]
+    },
+    {
+      "no": 4,
+      "name": "ピン径",
+      "part": "lower case",
+      "feature": "pin",
+      "kind": "boss",
+      "direction": "XY",
+      "unit": "mm",
+      "cad": {
+        "*": 1.8
+      },
+      "image": "img01",
+      "annotation": {
+        "type": "point",
+        "points": [
+          [
+            0.7,
+            0.5
+          ]
+        ],
+        "label_pos": [
+          0.82,
+          0.64
+        ]
+      },
+      "note": "shared CAD value for all variants",
+      "measurements": [
+        {
+          "variant": "*",
+          "value": 1.86,
+          "date": "2026-09-12",
+          "by": "user",
+          "method": "caliper"
+        }
+      ]
+    },
+    {
+      "no": 5,
+      "name": "ケース厚み",
+      "part": "lower case",
+      "feature": "body",
+      "kind": "height",
+      "direction": "Z",
+      "unit": "mm",
+      "cad": {
+        "*": 26.78
+      },
+      "image": "img01",
+      "annotation": {
+        "type": "dim",
+        "points": [
+          [
+            0.15,
+            0.25
+          ],
+          [
+            0.15,
+            0.75
+          ]
+        ],
+        "label_pos": [
+          0.08,
+          0.5
+        ]
+      },
+      "measurements": [
+        {
+          "variant": "*",
+          "value": 26.7,
+          "date": "2026-09-12",
+          "by": "user",
+          "method": "caliper"
+        }
+      ]
+    },
+    {
+      "no": 6,
+      "name": "蓋の隙間",
+      "part": "assembly",
+      "feature": "lid_gap",
+      "kind": "gap",
+      "direction": "Z",
+      "unit": "mm",
+      "cad": {
+        "V1": 0.2,
+        "V2": 0.25,
+        "V3": 0.3
+      },
+      "image": "img01",
+      "annotation": {
+        "type": "point",
+        "points": [
+          [
+            0.13,
+            0.25
+          ]
+        ],
+        "label_pos": [
+          0.06,
+          0.16
+        ]
+      },
+      "measurements": [
+        {
+          "variant": "V1",
+          "value": 0.12,
+          "date": "2026-09-12",
+          "by": "user",
+          "method": "feeler gauge"
+        }
+      ]
+    },
+    {
+      "no": 7,
+      "name": "全長",
+      "part": "lower case",
+      "feature": "body",
+      "kind": "other",
+      "direction": "X",
+      "unit": "mm",
+      "cad": {
+        "*": 60.0
+      },
+      "measurements": [
+        {
+          "variant": "*",
+          "value": 59.84,
+          "date": "2026-09-12",
+          "by": "user",
+          "method": "caliper"
+        }
+      ]
+    }
+  ]
+}

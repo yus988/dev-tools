@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fit-lab</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='5' width='28' height='5' rx='1' fill='%231a56c4'/%3E%3Cpath d='M4 10h5v17l-5-5z' fill='%231a56c4'/%3E%3Cpath d='M16 3h7v10h-2v14l-5-5z' fill='%23e0451b'/%3E%3Cpath d='M11 7.5h3M25 7.5h3' stroke='%23fff' stroke-width='1.2'/%3E%3C/svg%3E">
+<script>
+  // apply the saved theme before first paint (auto = follow the OS)
+  try { var t = localStorage.getItem("fit-lab.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="5" width="28" height="5" rx="1" fill="#1a56c4"/><path d="M4 10h5v17l-5-5z" fill="#1a56c4"/><path d="M16 3h7v10h-2v14l-5-5z" fill="#e0451b"/></svg>fit-lab</a>
+  <nav class="crumbs" id="crumbs"></nav>
+  <div class="actions" id="actions"></div>
+  <span class="mode-tag" id="mode-tag" title="データの読み書き先"></span>
+  <button type="button" class="theme-btn" id="theme-btn" title="テーマ切替（自動 / ライト / ダーク）"></button>
+</header>
+<main id="view"></main>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<div id="popover" class="popover" hidden></div>
+<script src="voice-parse.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

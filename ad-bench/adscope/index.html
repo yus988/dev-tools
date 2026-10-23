@@ -1,0 +1,838 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AD Scope</title>
+<style>
+:root {
+  --bg: #111417; --panel: #1b2026; --line: #2c333b; --text: #d8dde3; --dim: #8a96a3;
+  --ch1: #f2d230; --ch2: #39d3e6; --warn: #ff7a59; --ok: #6ad37a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.35 system-ui, "Segoe UI", "Yu Gothic UI", sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+#dev { width: 340px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#badge { width: 92px; text-align: center; padding: 2px 0; border-radius: 4px; background: #333; font-weight: 600; }
+#settle { width: 110px; color: var(--warn); }
+#bMic { width: 118px; }
+#bMic.on { background: #2e6b3a; color: #fff; }
+#lvl { width: 60px; height: 10px; background: #0d1013; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+#lvl i { display: block; height: 100%; width: 0; background: var(--ok); }
+#heard { width: 220px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#markInfo { width: 300px; color: var(--ok); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 10px; padding: 10px 12px; }
+#scopewrap { position: relative; }
+canvas { width: 100%; aspect-ratio: 10 / 8; max-height: calc(100vh - 230px); display: block; background: #050708; border: 1px solid var(--line); border-radius: 4px; }
+#overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(5,7,8,.85); font-size: 16px; text-align: center; padding: 20px; }
+#meas { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.mbox { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid; border-radius: 4px; padding: 6px 10px; }
+.mbox .h { display: flex; justify-content: space-between; color: var(--dim); }
+.mbox .h b { color: var(--text); width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mbox .clip { width: 64px; text-align: right; color: var(--warn); font-weight: 600; }
+.big { font: 600 34px/1.1 Consolas, "Cascadia Mono", monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 4px; }
+.mbox .where { width: 120px; text-align: right; }
+canvas { cursor: crosshair; }
+.row div { color: var(--dim); font-size: 11px; }
+.row span { display: block; color: var(--text); font: 600 14px Consolas, "Cascadia Mono", monospace; white-space: nowrap; }
+aside { display: flex; flex-direction: column; gap: 8px; }
+fieldset { margin: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); padding: 6px 8px 8px; }
+legend { color: var(--dim); padding: 0 4px; }
+.g { display: grid; grid-template-columns: 74px 1fr; gap: 4px 6px; align-items: center; }
+input, select, button { font: inherit; color: var(--text); background: #0d1013; border: 1px solid var(--line); border-radius: 3px; padding: 2px 4px; min-width: 0; }
+input[type=checkbox] { width: auto; }
+button { background: #263039; cursor: pointer; padding: 4px 8px; }
+button:hover { background: #31404c; }
+.btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+#bRun { color: var(--ok); } #bStop { color: var(--warn); }
+.chhead { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+.chhead input[type=text] { flex: 1; }
+#result { min-height: 3.2em; max-height: 3.2em; overflow: hidden; color: var(--dim); font-size: 12px; word-break: break-all; }
+header button { white-space: nowrap; flex: none; }
+#bTts { width: 132px; }
+#bTts.on { background: #2e4f6b; color: #fff; }
+/* guided probing (手順): the side panel widens and shows the board picture */
+main.proc { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.tabs button.on { background: #3a4d5c; color: #fff; font-weight: 600; }
+#pSet { display: flex; flex-direction: column; gap: 8px; }
+#pProc { display: none; flex-direction: column; gap: 8px; height: calc(100vh - 112px); min-height: 520px; }
+main.proc #pSet { display: none; } main.proc #pProc { display: flex; }
+.prow { display: flex; gap: 6px; align-items: center; }
+#procSel { flex: 1; }
+#procStart { width: 72px; }
+#procErr { color: var(--warn); font-size: 12px; max-height: 6em; overflow: auto; }
+#stepCard { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; }
+#stepHead { display: flex; gap: 8px; align-items: center; color: var(--dim); }
+#stepNo { width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#stepAct { width: 84px; text-align: center; border-radius: 3px; padding: 1px 0; background: #333; color: #fff; font-weight: 600; }
+#stepHint { flex: 1; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#stepSay { font-size: 24px; line-height: 1.3; font-weight: 600; height: 4em; overflow: auto; margin-top: 4px; }
+#stepProbes { height: 1.6em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 600 14px Consolas, "Cascadia Mono", "Yu Gothic UI", monospace; }
+#procBody { flex: 1; min-height: 0; display: flex; gap: 8px; }
+#boardWrap { position: relative; flex: 1; min-width: 0; min-height: 240px; }
+#procSide { width: 230px; flex: none; display: flex; flex-direction: column; gap: 6px; }
+#board { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; max-height: none; cursor: zoom-in; }
+#board.zoom { cursor: zoom-out; }
+.pbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.pbtns button { padding: 12px 0; font-size: 15px; font-weight: 600; }
+#pOk { color: var(--ok); } #pNg { color: var(--warn); }
+#procNote { height: 2.8em; color: var(--ok); overflow: hidden; }
+#procList { flex: 1; min-height: 0; overflow: auto; font: 13px/1.45 Consolas, "Cascadia Mono", "Yu Gothic UI", monospace; }
+#procList div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#procList .pass { color: var(--ok); } #procList .fail { color: var(--warn); } #procList .info { color: var(--dim); }
+@media (max-width: 900px) { main, main.proc { grid-template-columns: 1fr; } canvas { max-height: none; } }
+/* agent prompt (POST /api/say): floats over the page so it never shifts the layout */
+#sayBar { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 20; max-width: min(90vw, 760px);
+  padding: 10px 22px; border-radius: 10px; background: #1e3a5f; color: #fff; font-size: 22px; font-weight: 600;
+  box-shadow: 0 4px 18px #0008; display: none; text-align: center; }
+</style>
+</head>
+<body>
+<div id="sayBar"></div>
+<header>
+  <h1>AD Scope</h1>
+  <span id="badge">--</span>
+  <span id="settle"></span>
+  <span id="dev">接続確認中…</span>
+  <button id="bMic" title="「当てた」「OK」「次」「記録」などと話すと、その時点の値を記録してエージェントに知らせる">🎤 音声 OFF</button>
+  <span id="lvl" title="マイクの入力レベル（音声 ON の間）"><i></i></span>
+  <button id="bTts" title="手順の指示とエージェントの呼びかけ（プローブを当ててください／計測中／計測終わり）を声で読み上げる。ON/OFF は覚えておく">🔈 読み上げ OFF</button>
+  <span id="markInfo"></span>
+  <span id="heard"></span>
+</header>
+<main>
+  <section>
+    <div id="scopewrap">
+      <canvas id="cv" width="1000" height="800"></canvas>
+      <div id="overlay"><div id="ovmsg">Analog Discovery が見つかりません</div><button id="bRetry">再接続</button></div>
+    </div>
+    <div id="meas"></div>
+  </section>
+  <aside>
+    <div class="tabs"><button id="tabSet" class="on">設定</button><button id="tabProc">手順</button></div>
+    <div id="pProc">
+      <div class="prow"><select id="procSel"></select><select id="procFrom" title="途中の手順から始める" style="width:150px"></select><button id="procStart" title="選んだ手順（左の「最初から / 途中から」）からやり直す">最初から</button></div>
+      <div id="procErr"></div>
+      <div id="stepCard">
+        <div id="stepHead"><span id="stepNo">手順を選ぶ</span><span id="stepAct">--</span><span id="stepHint"></span></div>
+        <div id="stepSay"></div>
+        <div id="stepProbes"></div>
+      </div>
+      <div id="procBody">
+      <div id="boardWrap"><canvas id="board" title="クリックで 2 倍に拡大 / 戻す"></canvas></div>
+      <div id="procSide">
+      <div class="pbtns"><button id="pOk" title="「当てた」「OK」「次」と同じ">当てた / OK</button><button id="pNg" title="「NG」「だめ」と同じ">NG</button>
+        <button id="pBack" title="「戻る」と同じ: 1 つ前の手順へ">戻る</button><button id="pRedo" title="「やり直し」と同じ: 直前の手順を今の値で測り直す">やり直し</button></div>
+      <div id="procNote"></div>
+      <div id="procList"></div>
+      </div>
+      </div>
+    </div>
+    <div id="pSet">
+    <fieldset><legend>取得</legend>
+      <div class="btns"><button id="bRun">Run</button><button id="bStop">Stop</button><button id="bSingle">Single</button></div>
+      <div class="g" style="margin-top:6px">
+        <label>モード</label>
+        <select id="mode"><option value="auto">Auto</option><option value="normal">Normal</option><option value="single">Single</option><option value="roll">Roll</option></select>
+        <label>時間/div</label><select id="tdiv"></select>
+        <label>Roll 幅</label><select id="roll_s"></select>
+      </div>
+    </fieldset>
+    <fieldset><legend>トリガ</legend>
+      <div class="g">
+        <label>ソース</label><select id="tsrc"><option value="0">CH1</option><option value="1">CH2</option></select>
+        <label>エッジ</label><select id="tedge"><option value="rise">立ち上がり</option><option value="fall">立ち下がり</option></select>
+        <label>レベル (V)</label><input id="tlevel" type="number" step="0.05">
+        <label>プリ (%)</label><input id="tpre" type="number" step="5" min="0" max="100">
+      </div>
+    </fieldset>
+    <fieldset id="ch0"></fieldset>
+    <fieldset id="ch1"></fieldset>
+    <fieldset><legend>保存</legend>
+      <div class="g">
+        <button id="bSave" style="grid-column:1/3">現在の波形を保存</button>
+        <label>記録 (s)</label><input id="recS" type="number" value="2" min="0.1" max="600" step="0.5">
+        <label>レート</label>
+        <select id="recR"><option value="10000">10 kS/s</option><option value="50000">50 kS/s</option><option value="200000" selected>200 kS/s</option><option value="1000000">1 MS/s</option></select>
+        <button id="bRec" style="grid-column:1/3">Record N 秒</button>
+      </div>
+      <div id="result"></div>
+    </fieldset>
+    </div>
+  </aside>
+</main>
+<script>
+'use strict';
+const COLORS = ['#f2d230', '#39d3e6'];
+const VDIVS = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5];
+const TDIVS = []; for (let e = -6; e <= 0; e++) for (const m of [1, 2, 5]) { const v = m * 10 ** e; if (v <= 1) TDIVS.push(+v.toPrecision(3)); }
+const ROLLS = [1, 2, 5, 10, 20, 30];
+const LS_KEY = 'adscope.settings';
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d');
+let settings = null, rev = -1, last = null, sayId = null, sayTimer = null;
+
+function fmtT(s) { if (s >= 1) return s + ' s'; if (s >= 1e-3) return +(s * 1e3).toPrecision(3) + ' ms'; return +(s * 1e6).toPrecision(3) + ' µs'; }
+function fmtV(v, unit) {
+  if (v == null || !isFinite(v)) return '---';
+  const a = Math.abs(v);
+  if (a < 1 && a >= 1e-4) return (v * 1e3).toFixed(a < 0.1 ? 2 : 1) + ' m' + unit;
+  return v.toFixed(a >= 10 ? 2 : 3) + ' ' + unit;
+}
+function opt(sel, vals, fmt) { sel.innerHTML = vals.map(v => `<option value="${v}">${fmt(v)}</option>`).join(''); }
+
+opt($('tdiv'), TDIVS, v => fmtT(v) + '/div');
+opt($('roll_s'), ROLLS, v => v + ' s');
+for (const i of [0, 1]) {
+  $('ch' + i).innerHTML = `<legend style="color:${COLORS[i]}">CH${i + 1}</legend>
+    <div class="chhead"><input type="checkbox" id="en${i}"><input type="text" id="nm${i}" maxlength="16"></div>
+    <div class="g"><label>V/div</label><select id="vd${i}"></select>
+    <label>中心 (V)</label><input id="of${i}" type="number" step="0.1">
+    <label>シャント Ω</label><input id="sh${i}" type="number" step="0.01" min="0" title="0 = 電圧表示, >0 = 電流 (V/R) 表示"></div>`;
+  opt($('vd' + i), VDIVS, v => fmtV(v, 'V') + '/div');
+}
+$('meas').innerHTML = [0, 1].map(i => `<div class="mbox" id="m${i}" style="border-left-color:${COLORS[i]}">
+  <div class="h"><b id="mn${i}">CH${i + 1}</b><span class="where" id="mw${i}">現在値（最新）</span><span class="clip" id="mc${i}"></span></div>
+  <div class="big" id="mm${i}" style="color:${COLORS[i]}">---</div>
+  <div class="row"><div>平均<span id="ma${i}">---</span></div><div>最小<span id="mi${i}">---</span></div><div>最大<span id="mx${i}">---</span></div>
+  <div>p-p<span id="mp${i}">---</span></div><div>RMS<span id="mr${i}">---</span></div></div></div>`).join('');
+// Readout cursor: the big number is the value under this vertical line.
+// null = newest sample (right end of the trace); click the screen to move it, double-click to go back.
+let cursorFrac = null;
+cv.addEventListener('click', e => { const r = cv.getBoundingClientRect(); cursorFrac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); if (last) { draw(last); updateMeas(last); } });
+cv.addEventListener('dblclick', () => { cursorFrac = null; if (last) { draw(last); updateMeas(last); } });
+function cursorTime(f) { return cursorFrac == null ? f.x1 : f.screen[0] + cursorFrac * (f.screen[1] - f.screen[0]); }
+function valueAt(f, ch) {
+  const p = ch.points, n = p.length;
+  if (!n || f.x1 == null || f.x1 === f.x0) return null;
+  const k = (cursorTime(f) - f.x0) / (f.x1 - f.x0) * (n - 1);
+  if (k < -0.5 || k > n - 0.5) return null;
+  const i = Math.round(k), a = Math.max(0, i - 2), b = Math.min(n - 1, i + 2);
+  let s = 0; for (let j = a; j <= b; j++) s += p[j];
+  return s / (b - a + 1);
+}
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+function setResult(t) { $('result').textContent = t; }
+async function post(path, body) { try { return await api(path, body || {}); } catch (e) { setResult('エラー: ' + e.message); } }
+
+// ---- controls <-> settings
+function fillControls(s) {
+  const set = (id, v) => { const el = $(id); if (el !== document.activeElement) el.value = v; };
+  set('mode', s.mode); set('tdiv', nearest(TDIVS, s.tdiv)); set('roll_s', nearest(ROLLS, s.roll_s));
+  set('tsrc', s.trigger.source); set('tedge', s.trigger.edge); set('tlevel', s.trigger.level); set('tpre', s.trigger.pre);
+  s.channels.forEach((c, i) => {
+    $('en' + i).checked = c.enabled; set('nm' + i, c.name); set('vd' + i, nearest(VDIVS, c.vdiv));
+    set('of' + i, c.offset); set('sh' + i, c.shunt_ohm);
+  });
+}
+function nearest(list, v) { return list.reduce((a, b) => Math.abs(Math.log(b / v)) < Math.abs(Math.log(a / v)) ? b : a); }
+function sendConfig(part) { post('/api/config', part); }
+function chPart(i, c) { const ch = [{}, {}]; ch[i] = c; return { channels: ch }; }
+$('mode').onchange = e => { const m = e.target.value; if (m === 'single') post('/api/single'); else { sendConfig({ mode: m }); post('/api/run'); } };
+$('tdiv').onchange = e => sendConfig({ tdiv: +e.target.value });
+$('roll_s').onchange = e => sendConfig({ roll_s: +e.target.value });
+$('tsrc').onchange = e => sendConfig({ trigger: { source: +e.target.value } });
+$('tedge').onchange = e => sendConfig({ trigger: { edge: e.target.value } });
+$('tlevel').onchange = e => sendConfig({ trigger: { level: +e.target.value } });
+$('tpre').onchange = e => sendConfig({ trigger: { pre: +e.target.value } });
+for (const i of [0, 1]) {
+  $('en' + i).onchange = e => sendConfig(chPart(i, { enabled: e.target.checked }));
+  $('nm' + i).onchange = e => sendConfig(chPart(i, { name: e.target.value }));
+  $('vd' + i).onchange = e => sendConfig(chPart(i, { vdiv: +e.target.value }));
+  $('of' + i).onchange = e => sendConfig(chPart(i, { offset: +e.target.value }));
+  $('sh' + i).onchange = e => sendConfig(chPart(i, { shunt_ohm: +e.target.value || 0 }));
+}
+$('bRun').onclick = () => post('/api/run');
+$('bStop').onclick = () => post('/api/stop');
+$('bSingle').onclick = () => post('/api/single');
+$('bRetry').onclick = async () => { $('ovmsg').textContent = '再接続中…'; await post('/api/connect'); };
+$('bSave').onclick = async () => { setResult('保存中…'); const r = await post('/api/save'); if (r) setResult('保存: ' + r.dir); };
+$('bRec').onclick = async () => {
+  const sec = +$('recS').value, rate = +$('recR').value;
+  setResult(`記録中… ${sec} s（入力の安定待ち 2 s を含む）`);
+  const r = await post('/api/record', { seconds: sec, rate });
+  if (!r) return;
+  const parts = Object.values(r.summary.channels).map(c => c.a
+    ? `${c.name} ${fmtV(c.a.mean, 'A')} (max10ms ${fmtV(c.a.max_10ms_avg, 'A')})`
+    : `${c.name} ${fmtV(c.v.mean, 'V')} (${fmtV(c.v.min, 'V')}〜${fmtV(c.v.max, 'V')})`);
+  setResult('保存: ' + r.dir + ' / ' + parts.join(', ') + (r.summary.lost ? ' / 欠落あり' : ''));
+};
+
+// ---- drawing
+// The backing store follows the canvas's on-screen size × devicePixelRatio and we
+// draw in CSS pixels, so text and lines stay sharp and are never stretched when
+// the layout changes the canvas's aspect ratio.
+function fitCanvas() {
+  const dpr = window.devicePixelRatio || 1, w = Math.max(1, cv.clientWidth), h = Math.max(1, cv.clientHeight);
+  const bw = Math.round(w * dpr), bh = Math.round(h * dpr);
+  if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return [w, h];
+}
+new ResizeObserver(() => { if (last) draw(last); else draw(null); }).observe(cv);
+function draw(f) {
+  const [W, H] = fitCanvas(), dx = W / 10, dy = H / 8;
+  ctx.fillStyle = '#050708'; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#1f2a2f'; ctx.lineWidth = 1; ctx.setLineDash([2, 4]);
+  ctx.beginPath();
+  for (let i = 1; i < 10; i++) { ctx.moveTo(i * dx + .5, 0); ctx.lineTo(i * dx + .5, H); }
+  for (let i = 1; i < 8; i++) { ctx.moveTo(0, i * dy + .5); ctx.lineTo(W, i * dy + .5); }
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = '#3a4a52'; ctx.beginPath();
+  ctx.moveTo(5 * dx + .5, 0); ctx.lineTo(5 * dx + .5, H); ctx.moveTo(0, 4 * dy + .5); ctx.lineTo(W, 4 * dy + .5);
+  for (let i = 0; i < 50; i++) { ctx.moveTo(i * dx / 5 + .5, 4 * dy - 4); ctx.lineTo(i * dx / 5 + .5, 4 * dy + 5); }
+  for (let i = 0; i < 40; i++) { ctx.moveTo(5 * dx - 4, i * dy / 5 + .5); ctx.lineTo(5 * dx + 5, i * dy / 5 + .5); }
+  ctx.stroke();
+  if (!f || !settings) return;
+  const s = settings, [t0, t1] = f.screen, tx = t => (t - t0) / (t1 - t0) * W;
+  const yOf = (c, v) => H / 2 - (v - c.offset / kOf(c)) / (c.vdiv / kOf(c)) * dy;
+  // trigger markers
+  if (s.mode !== 'roll') {
+    const x = tx(0);
+    ctx.fillStyle = '#ff9f43'; ctx.beginPath(); ctx.moveTo(x - 7, 0); ctx.lineTo(x + 7, 0); ctx.lineTo(x, 10); ctx.fill();
+    const tc = s.channels[s.trigger.source], y = yOf(tc, s.trigger.level * kOf(tc));
+    ctx.strokeStyle = COLORS[s.trigger.source] + '66'; ctx.setLineDash([6, 6]);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = COLORS[s.trigger.source]; ctx.beginPath(); ctx.moveTo(W, y - 7); ctx.lineTo(W, y + 7); ctx.lineTo(W - 11, y); ctx.fill();
+  }
+  // traces
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
+  for (const ch of f.channels || []) {
+    const c = s.channels[ch.idx];
+    if (!ch.points.length || !c.enabled) continue;
+    // ground (0) marker on the left edge
+    const y0 = yOf(c, 0);
+    ctx.fillStyle = COLORS[ch.idx]; ctx.beginPath(); ctx.moveTo(0, y0 - 6); ctx.lineTo(0, y0 + 6); ctx.lineTo(10, y0); ctx.fill();
+    const p = ch.points, n = p.length, xa = tx(f.x0), xb = tx(f.x1);
+    ctx.strokeStyle = COLORS[ch.idx]; ctx.lineWidth = 1.4; ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const x = n > 1 ? xa + (xb - xa) * i / (n - 1) : xa, y = yOf(c, p[i]);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+  // readout cursor (where the big numbers are read)
+  if (f.x1 != null) {
+    const xc = Math.min(W - 1, Math.max(1, tx(cursorTime(f))));
+    ctx.strokeStyle = '#ffffffaa'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(xc, 0); ctx.lineTo(xc, H); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#ffffff'; ctx.font = '600 14px "Yu Gothic UI", sans-serif'; ctx.textBaseline = 'top';
+    ctx.textAlign = xc > W - 120 ? 'right' : 'left';
+    // between two division lines so it never sits on a scale label
+    ctx.fillText(cursorFrac == null ? '現在値' : 'カーソル', xc + (xc > W - 120 ? -6 : 6), H / 8 * 0.5 + 4);
+    ctx.textAlign = 'left';
+  }
+  // vertical scale: volts at each division (CH1 on the left edge, CH2 on the right edge)
+  ctx.font = '600 13px Consolas, monospace'; ctx.textBaseline = 'middle';
+  s.channels.forEach((c, i) => {
+    if (!c.enabled || i > 1) return;
+    const k = kOf(c), u = c.shunt_ohm > 0 ? 'A' : 'V';
+    ctx.fillStyle = COLORS[i]; ctx.textAlign = i === 0 ? 'left' : 'right';
+    // inner division lines only: the top/bottom edges carry the status texts
+    for (let d = 1; d <= 7; d++) {
+      const val = (c.offset + (4 - d) * c.vdiv) / k;
+      ctx.fillText(fmtV(Math.abs(val) < 1e-9 ? 0 : val, u), i === 0 ? 16 : W - 16, d * dy);
+    }
+  });
+  ctx.textAlign = 'left';
+  // labels: channel scales bottom-left, time base bottom-right, sample rate top-right
+  ctx.font = '600 14px Consolas, monospace'; ctx.textBaseline = 'bottom';
+  const tb = s.mode === 'roll' ? `Roll ${s.roll_s} s` : `${fmtT(s.tdiv)}/div`;
+  let lx = 14;
+  s.channels.forEach((c, i) => {
+    if (!c.enabled) return;
+    const u = c.shunt_ohm > 0 ? 'A' : 'V';
+    const t = `${c.name} ${fmtV(c.vdiv / kOf(c), u)}/div 中心 ${fmtV(c.offset / kOf(c), u)}`;
+    ctx.fillStyle = COLORS[i]; ctx.fillText(t, lx, H - 6);
+    lx += ctx.measureText(t).width + 24;
+  });
+  ctx.fillStyle = '#d8dde3'; ctx.textAlign = 'right';
+  if (lx + ctx.measureText(tb).width < W - 14) ctx.fillText(tb, W - 14, H - 6);
+  if (f.rate_hz) { ctx.fillStyle = '#8a96a3'; ctx.textBaseline = 'top'; ctx.fillText(`${tb}  ${fmtRate(f.rate_hz)}  ${f.samples} pts`, W - 14, 6); }
+  ctx.textAlign = 'left';
+}
+function kOf(c) { return c.shunt_ohm > 0 ? c.shunt_ohm : 1; }  // display value = volts / k
+function fmtRate(r) { return r >= 1e6 ? +(r / 1e6).toPrecision(3) + ' MS/s' : r >= 1e3 ? +(r / 1e3).toPrecision(3) + ' kS/s' : +r.toPrecision(3) + ' S/s'; }
+
+const BADGE = { trig: ['Trig\'d', '#2e6b3a'], auto: ['Auto', '#5a5a2a'], armed: ['Armed', '#6b4a1e'], triggered: ['取得中', '#2e6b3a'],
+  roll: ['Roll', '#1f5566'], stop: ['Stop', '#6b2a2a'], recording: ['記録中', '#6b1e5a'], nodevice: ['未接続', '#444'],
+  nochannel: ['CH 無効', '#444'], idle: ['--', '#333'] };
+function updateMeas(f) {
+  for (const i of [0, 1]) {
+    const ch = (f.channels || []).find(c => c.idx === i), c = settings && settings.channels[i];
+    $('mn' + i).textContent = c ? c.name : 'CH' + (i + 1);
+    const m = ch && ch.meas, u = ch ? ch.unit : 'V';
+    const v = !m ? null : cursorFrac == null ? m.now : valueAt(f, ch);
+    $('mm' + i).textContent = v == null ? '---' : fmtV(v, u);
+    $('mw' + i).textContent = cursorFrac == null ? '現在値（最新）' : 'カーソル ' + fmtT(Math.abs(cursorTime(f))).replace(/^/, cursorTime(f) < 0 ? '−' : '');
+    $('ma' + i).textContent = m ? fmtV(m.mean, u) : '---';
+    $('mi' + i).textContent = m ? fmtV(m.min, u) : '---';
+    $('mx' + i).textContent = m ? fmtV(m.max, u) : '---';
+    $('mp' + i).textContent = m ? fmtV(m.pp, u) : '---';
+    $('mr' + i).textContent = m ? fmtV(m.rms, u) : '---';
+    $('mc' + i).textContent = m && m.clipped ? '範囲外' : '';
+    $('m' + i).style.opacity = c && c.enabled ? 1 : .4;
+  }
+}
+
+async function tick() {
+  try {
+    const f = await api('/api/frame');
+    if (f.rev !== rev) {
+      rev = f.rev; settings = f.settings; fillControls(settings);
+      try { localStorage.setItem(LS_KEY, JSON.stringify(settings)); } catch (e) { /* storage blocked */ }
+    }
+    const key = !f.connected ? 'nodevice' : (f.running || f.state === 'recording') ? f.state : 'stop';
+    const [label, color] = BADGE[key] || [key, '#333'];
+    $('badge').textContent = label; $('badge').style.background = color;
+    $('settle').textContent = f.settling ? '入力安定待ち…' : '';
+    $('overlay').style.display = f.connected ? 'none' : 'flex';
+    if (!f.connected) $('ovmsg').textContent = f.error || 'Analog Discovery が見つかりません';
+    if (f.seq !== (last && last.seq) || f.rev !== (last && last.rev)) { draw(f); updateMeas(f); }
+    if (f.say) {                     // agent prompt: read each new one aloud (not the one already there at load)
+      if (sayId != null && f.say.id !== sayId && f.say.text) showSay(f.say.text);
+      sayId = f.say.id;
+    }
+    last = f;
+  } catch (e) {
+    $('badge').textContent = '切断'; $('badge').style.background = '#444';
+    $('dev').textContent = 'adscope サーバに接続できません';
+  }
+  setTimeout(tick, 55);
+}
+async function devInfo() {
+  try { const s = await api('/api/status'); const d = s.device;
+    $('dev').textContent = d.connected ? `${d.name} ${d.sn}` : (d.error || '未接続');
+  } catch (e) { /* tick reports it */ }
+  setTimeout(devInfo, 2000);
+}
+// ---- voice marks: say "当てた" / "OK" / "次" / "記録" while both hands hold the probes.
+// Chrome / Edge Web Speech API (the browser sends the audio to its speech service).
+const MIC_KEY = 'adscope.mic';
+const MARK_WORDS = /当て|あて|アテ|OK|オッケー|おっけー|オーケー|出ました|でました|次|つぎ|記録|きろく|はい|お願い/i;
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, micOn = false, markTimer = null, recPaused = false;
+// Mic level meter: shows whether the browser actually gets audio from the mic.
+let meter = null;
+async function startMeter() {
+  if (meter) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const ac = new AudioContext(), an = ac.createAnalyser(); an.fftSize = 512;
+    ac.createMediaStreamSource(stream).connect(an);
+    const buf = new Uint8Array(an.fftSize);
+    meter = { stream, ac, raf: 0 };
+    const loop = () => {
+      an.getByteTimeDomainData(buf);
+      let peak = 0; for (const b of buf) peak = Math.max(peak, Math.abs(b - 128));
+      $('lvl').firstElementChild.style.width = Math.min(100, peak / 64 * 100) + '%';
+      meter.raf = requestAnimationFrame(loop);
+    };
+    loop();
+  } catch (e) { $('heard').textContent = 'マイクを開けません: ' + e.name; }
+}
+function stopMeter() {
+  if (!meter) return;
+  cancelAnimationFrame(meter.raf); meter.stream.getTracks().forEach(t => t.stop()); meter.ac.close(); meter = null;
+  $('lvl').firstElementChild.style.width = '0';
+}
+function setMic(on) {
+  micOn = on;
+  on ? startMeter() : stopMeter();
+  $('bMic').textContent = on ? '🎤 音声 ON' : '🎤 音声 OFF';
+  $('bMic').classList.toggle('on', on);
+  try { localStorage.setItem(MIC_KEY, on ? '1' : '0'); } catch (e) { /* storage blocked */ }
+  if (on) { try { rec.start(); } catch (e) { /* already started */ } } else if (rec) rec.stop();
+}
+function showMark(t) {
+  $('markInfo').textContent = t;
+  clearTimeout(markTimer); markTimer = setTimeout(() => { $('markInfo').textContent = ''; }, 8000);
+}
+async function sendMark(text) {
+  const m = await post('/api/mark', { text, kind: 'voice' });
+  if (!m) return;
+  showMark(`✔ #${m.id} 「${text}」 ` + m.channels.map(c => `${c.name} ${fmtV(c.mean, c.unit || 'V')}`).join(' / '));
+}
+if (!SR) {
+  $('bMic').disabled = true; $('bMic').title = 'このブラウザは音声認識に対応していません（Chrome か Edge で開いてください）';
+} else {
+  rec = new SR(); rec.lang = 'ja-JP'; rec.continuous = true; rec.interimResults = false;
+  rec.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (!e.results[i].isFinal) continue;
+      const text = e.results[i][0].transcript.trim();
+      if (recPaused || Date.now() < ttsBusyUntil) { $('heard').textContent = '（読み上げ中は無視）' + text; continue; }
+      // Commands are short words; a long transcript is someone talking (or the
+      // page's own read-aloud picked up by the mic), never a command.
+      if (text.replace(/\s/g, '').length > 14) { $('heard').textContent = '（長い発話は無視）' + text; continue; }
+      $('heard').textContent = '聞き取り: ' + text;
+      // A selected procedure is always running; 「最初から」 (or 「開始」) restarts it from the chosen step.
+      if (/最初から|さいしょから|開始|かいし|スタート/.test(text) && P.def) { procStart(); continue; }
+      const cmd = P.running ? procCommand(text) : null;
+      if (cmd) procVoice(text, cmd);
+      else if (MARK_WORDS.test(text)) sendMark(text);
+    }
+  };
+  rec.onerror = e => {
+    const hint = { 'no-speech': '（声が届いていない。レベル表示が動くか確認）', network: '（音声認識サービスに接続できない。Chrome か Edge で開く）',
+      'not-allowed': '（マイクの許可が無い）', 'audio-capture': '（マイクが見つからない）' }[e.error] || '';
+    $('heard').textContent = '音声エラー: ' + e.error + hint;
+    if (e.error === 'not-allowed') setMic(false);
+  };
+  rec.onend = () => { if (micOn && !recPaused) setTimeout(() => { try { rec.start(); } catch (e) { /* restarting */ } }, 200); };
+  $('bMic').onclick = () => setMic(!micOn);
+  let wasOn = false; try { wasOn = localStorage.getItem(MIC_KEY) === '1'; } catch (e) { wasOn = false; }
+  if (wasOn) setMic(true);
+}
+
+// ---- guided probing (手順): procedures/<name>.json walked step by step by voice or buttons.
+// The server validates the procedure and resolves every probe to a pixel on
+// boards/<board>/{top,bottom}.jpg; this page draws the rings, records the reading
+// at 「当てた」, judges it against `expect` and follows `next` / `else`.
+// Nothing here is board- or procedure-specific.
+const PROBE_COLORS = { 1: COLORS[0], 2: COLORS[1], gnd: '#e8e8e8', meter: '#ff8ad8' };
+const PROBE_NAMES = { 1: 'CH1', 2: 'CH2', gnd: 'GND', meter: 'テスター' };
+const ACTIONS = { connect_gnd: ['GND 接続', '#555'], power_on: ['電源 ON', '#2e6b3a'], power_off: ['電源 OFF', '#6b2a2a'],
+  probe: ['測定', '#1f5566'], manual: ['手作業', '#6b4a1e'] };
+const HINTS = { measure: '「当てた」で記録', ask: '「OK」か「NG」で回答', confirm: '「OK」で次へ' };
+const PROC_KEY = 'adscope.proc', TAB_KEY = 'adscope.tab';
+const P = { name: '', def: null, sides: null, imgs: {}, steps: {}, cur: null, prev: null, results: [], end: null,
+  running: false, zoom: false, side: 'top', lastMark: 0, own: new Set(), posting: 0, problems: [] };
+let ttsOn = false, ttsBusyUntil = 0, noteTimer = null;
+try { ttsOn = localStorage.getItem('adscope.tts') === '1'; } catch (e) { /* storage blocked */ }
+
+function stepKind(s) { return s.expect ? 'measure' : s.else != null ? 'ask' : 'confirm'; }
+function procCommand(text) {
+  if (/やり直|やりなお|もう一回|もう一度/.test(text)) return 'redo';
+  if (/戻|もど/.test(text)) return 'back';
+  if (/だめ|ダメ|駄目|NG|エヌジー|いいえ|違う|ちがう/i.test(text)) return 'ng';
+  if (MARK_WORDS.test(text)) return 'ok';
+  return null;
+}
+function note(t, warn) {
+  const el = $('procNote'); el.textContent = t; el.style.color = warn ? 'var(--warn)' : 'var(--ok)';
+  clearTimeout(noteTimer); noteTimer = setTimeout(() => { el.textContent = ''; }, 6000);
+}
+function speak(text) {
+  if (!ttsOn || !window.speechSynthesis || !text) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text); u.lang = 'ja-JP';
+  // Stop listening while the page talks: the instruction itself contains the
+  // command words (「当てた」), and the recogniser's final result for it can
+  // arrive after the speech ends. abort() drops anything still pending.
+  ttsBusyUntil = Date.now() + 60000;
+  if (rec && micOn) { recPaused = true; try { rec.abort(); } catch (e) { /* not running */ } }
+  u.onend = u.onerror = () => setTimeout(() => {
+    recPaused = false; ttsBusyUntil = Date.now() + 300;
+    if (rec && micOn) { try { rec.start(); } catch (e) { /* already started */ } }
+  }, 800);
+  speechSynthesis.speak(u);
+}
+function showTts() {
+  $('bTts').textContent = ttsOn ? '🔈 読み上げ ON' : '🔈 読み上げ OFF';
+  $('bTts').classList.toggle('on', ttsOn);
+}
+$('bTts').onclick = () => {
+  ttsOn = !ttsOn;
+  if (!ttsOn && window.speechSynthesis) { speechSynthesis.cancel(); ttsBusyUntil = 0; }
+  try { localStorage.setItem('adscope.tts', ttsOn ? '1' : '0'); } catch (e) { /* storage blocked */ }
+  showTts();
+};
+showTts();
+// Agent prompt: big banner + speech. It stays up until the next prompt; 計測終わり clears after a few seconds.
+function showSay(text) {
+  const el = $('sayBar'); el.textContent = text; el.style.display = 'block';
+  clearTimeout(sayTimer);
+  if (/終わ|終了|完了/.test(text)) sayTimer = setTimeout(() => { el.style.display = 'none'; }, 5000);
+  speak(text);
+}
+if (!window.speechSynthesis) { $('bTts').disabled = true; $('bTts').title = 'このブラウザは読み上げに対応していません'; }
+
+function fmtLimits(s) {
+  return Object.entries(s.expect || {}).map(([k, r]) => `${k.toUpperCase()} 期待 ` +
+    (Array.isArray(r) ? `${r[0].toFixed(2)}–${r[1].toFixed(2)} V` : `${r.near} の値 ±${r.tol} V`)).join('  ');
+}
+function nearLimits(rule, key) {
+  const base = [...P.results].reverse().find(r => r.step === rule.near && r.values[key] != null);
+  return base ? [base.values[key] - rule.tol, base.values[key] + rule.tol] : null;
+}
+function sayOf() { return P.end ? '結論: ' + P.end.text : P.steps[P.cur] ? P.steps[P.cur].say : ''; }
+function sendState(event, result) {
+  if (!P.def) return;
+  const s = P.steps[P.cur];
+  const body = { procedure: P.name, title: P.def.title, board: P.def.board, event, running: P.running,
+    step: P.cur, say: s ? s.say : null, done: !!P.end, conclusion: P.end ? P.end.text : null,
+    results: P.results.map(r => ({ step: r.step, pass: r.pass, answer: r.answer, values: r.values })) };
+  if (result) body.result = result;
+  post('/api/procedure/state', body);
+}
+
+async function procLoad(name) {
+  P.name = name; P.def = null; P.sides = null; P.imgs = {}; P.steps = {}; P.running = false; P.end = null;
+  P.results = []; P.prev = null; P.cur = null; P.problems = [];
+  $('procErr').textContent = '';
+  if (!name) return showStep();
+  try { localStorage.setItem(PROC_KEY, name); } catch (e) { /* storage blocked */ }
+  let r;
+  try { r = await api('/api/procedures/' + encodeURIComponent(name)); } catch (e) { P.problems = [e.message]; $('procErr').textContent = '読み込めません: ' + e.message; return showStep(); }
+  if (r.problems.length) $('procErr').textContent = '⚠ この手順は直すまで開始できません:\n・' + r.problems.join('\n・');
+  $('procErr').style.whiteSpace = 'pre-wrap';
+  if (r.procedure) {
+    P.def = r.procedure; P.sides = r.sides;
+    P.steps = Object.fromEntries(r.procedure.steps.map(s => [s.id, s]));
+    P.cur = r.procedure.start;
+    for (const [side, sd] of Object.entries(r.sides || {})) {
+      const img = new Image(); img.onload = drawBoard;
+      img.src = `/boards/${encodeURIComponent(r.procedure.board)}/${encodeURIComponent(sd.image)}`;
+      P.imgs[side] = img;
+    }
+  }
+  P.problems = r.problems;
+  // 「途中から開始」: every step can be the starting point (default: the first one).
+  const keep = $('procFrom').value;
+  $('procFrom').innerHTML = (P.def ? P.def.steps : []).map((s, i) =>
+    `<option value="${esc(s.id)}">${i ? '途中から: ' : '最初から: '}${esc(s.id)}</option>`).join('');
+  if (P.def && P.steps[keep]) $('procFrom').value = keep;
+  showStep();
+}
+// Refresh the list of procedure files whenever the picker is opened (new files show up without a reload).
+async function procList() {
+  try {
+    const { procedures } = await api('/api/procedures'), cur = $('procSel').value;
+    $('procSel').innerHTML = '<option value="">（手順を選ぶ）</option>' + procedures.map(p =>
+      `<option value="${esc(p.name)}">${p.problems.length ? '⚠ ' : ''}${esc(p.title || p.name)}</option>`).join('');
+    $('procSel').value = procedures.some(p => p.name === cur) ? cur : '';
+    return procedures;
+  } catch (e) { $('procErr').textContent = '手順の一覧を読めません: ' + e.message; return []; }
+}
+$('procSel').addEventListener('mousedown', () => procList());
+// There is no separate start: choosing a procedure (or a starting step) starts it, and it stays running.
+async function procStart() {
+  // Re-read the file on every start, so edits to procedures/*.json apply without reloading the page.
+  const from = $('procFrom').value;
+  if (P.name) await procLoad(P.name);
+  if (!P.def || P.problems.length) return note('開始できない（手順にエラーがある）', true);
+  try { const j = await api('/api/marks?since=0'); P.lastMark = j.marks.reduce((a, m) => Math.max(a, m.id), 0); } catch (e) { P.lastMark = 0; }
+  P.cur = P.steps[from] ? from : P.def.start; P.prev = null; P.results = []; P.end = null; P.running = true;
+  sendState('start'); note('手順: ' + P.def.title); showStep(); speak(sayOf());
+}
+async function procVoice(text, cmd, kind = 'voice') {
+  if (!P.running) return note(P.def ? 'この手順はエラーで始められない' : '手順を選ぶ', true);
+  if (P.end && cmd === 'ok') return procStart();     // 結論の後の「OK」: 最初からもう一度
+  if (cmd === 'back') return procHandle(null, 'back');
+  P.posting++;
+  let m;
+  try { m = await post('/api/mark', { text, kind, step: P.cur }); } finally { P.posting--; }
+  if (!m) return;
+  P.own.add(m.id);
+  showMark(`✔ #${m.id} 「${text}」 ` + m.channels.map(c => `${c.name} ${fmtV(c.now, c.unit || 'V')}`).join(' / '));
+  procHandle(m, cmd);
+}
+function procHandle(m, cmd) {
+  if (!P.running) return;
+  if (cmd === 'back') {
+    if (!P.results.length) return note('最初の手順', true);
+    const r = P.results.pop(); P.cur = r.step; P.end = null;
+    P.prev = P.results.length ? P.results[P.results.length - 1].step : null;
+    sendState('back'); note('← ' + r.step + ' に戻った'); showStep(); speak(sayOf());
+    return;
+  }
+  if (cmd === 'redo') {
+    if (!P.results.length) return note('やり直す手順がまだない', true);
+    const r = P.results.pop(); P.cur = r.step; P.end = null;
+    P.prev = P.results.length ? P.results[P.results.length - 1].step : null;
+    showStep();
+    if (stepKind(P.steps[P.cur]) === 'ask') { sendState('redo'); return note(r.step + ' に戻った。「OK」か「NG」で答える'); }
+    return record(m, 'ok');                      // measure again with the readings of this mark
+  }
+  if (P.end) return note('終わっている。「OK」で最初から、「戻る」で 1 つ前へ', true);
+  record(m, cmd);
+}
+function record(m, cmd) {
+  const s = P.steps[P.cur], kind = stepKind(s);
+  if (kind !== 'ask' && cmd === 'ng') return note('この手順は「当てた」/「OK」で進む', true);
+  const values = {};
+  (m.channels || []).forEach((c, i) => { if (c.now != null) values['ch' + (i + 1)] = +c.now.toFixed(4); });
+  let pass = kind === 'ask' ? cmd === 'ok' : true;
+  const limits = {};
+  if (kind === 'measure') {
+    for (const [key, rule] of Object.entries(s.expect)) {
+      const v = values[key];
+      if (v == null) return note(`${key.toUpperCase()} の値がない（AD 未接続か CH 無効）。測り直して「当てた」`, true);
+      const lim = Array.isArray(rule) ? rule : nearLimits(rule, key);
+      limits[key] = lim;
+      if (!lim || v < lim[0] || v > lim[1]) pass = false;
+    }
+  }
+  const r = { step: s.id, kind, action: s.action, answer: cmd, pass, values, limits, mark: m.id, text: m.text,
+    probes: s.probes.map(p => ({ ch: p.ch, label: p.label, ref: p.ref, pad: p.pad, net: p.net })) };
+  P.results.push(r);
+  const target = pass || s.else == null ? s.next : s.else;
+  P.prev = s.id;
+  if (typeof target === 'string') P.cur = target;
+  else P.end = { text: target.end, pass };
+  sendState(P.end ? 'end' : 'record', r);
+  const shown = kind === 'measure' ? Object.keys(s.expect).map(k => `${k.toUpperCase()} ${fmtV(values[k], 'V')}`).join(' ') : cmd.toUpperCase();
+  note(`${pass ? '✔' : '✘'} ${s.id}  ${shown}`, !pass);
+  showStep(); speak(sayOf());
+}
+async function pollMarks() {
+  if (P.running && !P.posting) {
+    try {
+      const j = await api('/api/marks?since=' + P.lastMark);
+      if (!P.posting) {                          // a mark of ours may be in flight: read again next time
+        for (const m of j.marks) {
+          P.lastMark = Math.max(P.lastMark, m.id);
+          if (P.own.has(m.id) || (m.step && m.step !== P.cur)) continue;
+          const cmd = procCommand(m.text);      // marks posted by the agent / curl drive the page too
+          if (cmd) { showMark(`✔ #${m.id} 「${m.text}」（外部）`); procHandle(m, cmd); }
+        }
+      }
+    } catch (e) { /* tick reports a dead server */ }
+  }
+  setTimeout(pollMarks, 400);
+}
+
+function showStep() {
+  const s = P.def && P.steps[P.cur];
+  const [act, col] = P.end ? ['終了', P.end.pass ? '#2e6b3a' : '#6b2a2a'] : s ? ACTIONS[s.action] || [s.action, '#333'] : ['--', '#333'];
+  $('stepAct').textContent = act; $('stepAct').style.background = col;
+  if (!s) {
+    $('stepNo').textContent = P.name ? '手順を読み込めない' : '手順を選ぶ';
+    $('stepSay').textContent = ''; $('stepProbes').textContent = ''; $('stepHint').textContent = '';
+  } else {
+    $('stepNo').textContent = P.end ? '結論' : `${P.running ? P.results.length + 1 + ' 手目' : '--'}  ${s.id}`;
+    $('stepSay').textContent = sayOf();
+    $('stepSay').style.color = P.end ? (P.end.pass ? 'var(--ok)' : 'var(--warn)') : '';
+    $('stepHint').textContent = P.end ? '「OK」で最初から、「戻る」で 1 つ前へ' : P.running ? HINTS[stepKind(s)] : '';
+    $('stepProbes').textContent = P.end ? '' : s.probes.map(p => `${PROBE_NAMES[p.ch]}→${p.label} (${p.ref}-${p.pad})`).join('  ') + '  ' + fmtLimits(s);
+    if (s.side) P.side = s.side;
+  }
+  $('procList').innerHTML = P.results.map(r => {
+    const v = r.kind === 'measure' ? Object.entries(r.values).filter(([k]) => r.limits[k] !== undefined).map(([k, x]) => `${k.toUpperCase()} ${fmtV(x, 'V')}`).join(' ')
+      : r.kind === 'ask' ? r.answer.toUpperCase() : '済';
+    return `<div class="${r.kind === 'confirm' ? 'info' : r.pass ? 'pass' : 'fail'}">${r.kind === 'confirm' ? '・' : r.pass ? '✔' : '✘'} ${esc(r.step)}  ${esc(v)}</div>`;
+  }).join('') + (P.end ? `<div class="${P.end.pass ? 'pass' : 'fail'}">■ ${esc(P.end.text)}</div>` : '');
+  $('procList').scrollTop = 1e6;
+  drawBoard();
+}
+function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function drawBoard() {
+  const c = $('board'), dpr = window.devicePixelRatio || 1;
+  const W = Math.round(c.clientWidth * dpr), H = Math.round(c.clientHeight * dpr);
+  if (!W || !H) return;
+  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+  const g = c.getContext('2d');
+  g.fillStyle = '#050708'; g.fillRect(0, 0, W, H);
+  const sd = P.sides && P.sides[P.side], img = P.imgs[P.side];
+  if (!sd || !img || !img.naturalWidth) {
+    g.fillStyle = '#8a96a3'; g.font = `${16 * dpr}px "Yu Gothic UI", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(P.def ? '基板の画像を読み込み中…' : '手順を選ぶと基板の図が出る', W / 2, H / 2); g.textAlign = 'left';
+    return;
+  }
+  const [bx0, by0, bx1, by1] = sd.board_px, mg = 24;
+  let vx = bx0 - mg, vy = by0 - mg, vw = bx1 - bx0 + 2 * mg, vh = by1 - by0 + 2 * mg;
+  const onSide = id => (id && P.steps[id] ? P.steps[id].probes : []).filter(p => p.side === P.side);
+  const cur = onSide(P.cur), prev = P.prev !== P.cur ? onSide(P.prev) : [];
+  if (P.zoom) {
+    const f = cur[0] ? cur[0].px : [vx + vw / 2, vy + vh / 2], nw = vw / 2, nh = vh / 2;
+    vx = Math.min(vx + vw - nw, Math.max(vx, f[0] - nw / 2)); vy = Math.min(vy + vh - nh, Math.max(vy, f[1] - nh / 2));
+    vw = nw; vh = nh;
+  }
+  const k = Math.min(W / vw, H / vh), ox = (W - vw * k) / 2, oy = (H - vh * k) / 2;
+  g.drawImage(img, vx, vy, vw, vh, ox, oy, vw * k, vh * k);
+  const at = p => [ox + (p.px[0] - vx) * k, oy + (p.px[1] - vy) * k];
+  // Point at the pad with an arrow whose tip stops just short of it, so the
+  // part itself stays visible (a ring hid small 0402 parts).
+  const L = (P.zoom ? 90 : 70) * dpr;
+  const dirOf = (x, y, i) => {
+    // head away from the nearest image edge, alternating for several probes
+    const a = [-0.75, -2.35, 0.75, 2.35][i % 4] * (y < H * 0.35 ? -1 : 1);
+    let dx = Math.cos(a), dy = Math.sin(a);
+    if (x - dx * L < 0 || x - dx * L > W) dx = -dx;
+    return [dx, dy];
+  };
+  g.globalAlpha = 0.35;
+  prev.forEach((p, i) => { const [x, y] = at(p); arrow(g, x, y, ...dirOf(x, y, i), L * 0.8, '#bbbbbb', dpr); });
+  g.globalAlpha = 1;
+  cur.forEach((p, i) => {
+    const [x, y] = at(p), [dx, dy] = dirOf(x, y, i);
+    arrow(g, x, y, dx, dy, L, '#ff2a2a', dpr);
+    const t = `${PROBE_NAMES[p.ch]} ${p.label}  ${p.ref}-${p.pad}`;
+    g.font = `600 ${15 * dpr}px "Yu Gothic UI", sans-serif`; g.textBaseline = 'middle';
+    const tw = g.measureText(t).width + 12 * dpr, th = 24 * dpr;
+    const tx0 = x - dx * (L + 6 * dpr), ty0 = y - dy * (L + 6 * dpr);
+    const lx = Math.min(W - tw, Math.max(0, dx > 0 ? tx0 - tw : tx0));
+    const ly = Math.min(H - th, Math.max(0, ty0 - th / 2));
+    g.fillStyle = 'rgba(0,0,0,.8)'; g.fillRect(lx, ly, tw, th);
+    g.strokeStyle = PROBE_COLORS[p.ch]; g.lineWidth = 2 * dpr; g.strokeRect(lx, ly, tw, th);
+    g.fillStyle = PROBE_COLORS[p.ch]; g.fillText(t, lx + 6 * dpr, ly + th / 2);
+  });
+  g.font = `600 ${14 * dpr}px "Yu Gothic UI", sans-serif`; g.textBaseline = 'top';
+  const sideText = P.side === 'top' ? '表面' : '裏面（裏返して見た向き）';
+  g.fillStyle = 'rgba(0,0,0,.7)'; g.fillRect(0, 0, g.measureText(sideText).width + 16 * dpr, 24 * dpr);
+  g.fillStyle = '#fff'; g.fillText(sideText, 8 * dpr, 5 * dpr);
+}
+// Arrow ending `gap` short of (x, y), coming from the direction (-dx, -dy).
+function arrow(g, x, y, dx, dy, len, color, dpr) {
+  const gap = 5 * dpr, hl = 16 * dpr, hw = 9 * dpr;
+  const ex = x - dx * gap, ey = y - dy * gap, sx = x - dx * len, sy = y - dy * len;
+  const bx = ex - dx * hl, by = ey - dy * hl, nx = -dy, ny = dx;
+  for (const [w, c] of [[7 * dpr, 'rgba(0,0,0,.85)'], [3.5 * dpr, color]]) {
+    g.lineWidth = w; g.strokeStyle = c; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(sx, sy); g.lineTo(bx, by); g.stroke();
+  }
+  g.beginPath(); g.moveTo(ex, ey); g.lineTo(bx + nx * hw, by + ny * hw); g.lineTo(bx - nx * hw, by - ny * hw); g.closePath();
+  g.lineWidth = 3 * dpr; g.strokeStyle = 'rgba(0,0,0,.85)'; g.stroke(); g.fillStyle = color; g.fill();
+}
+
+function setTab(proc) {
+  document.querySelector('main').classList.toggle('proc', proc);
+  $('tabProc').classList.toggle('on', proc); $('tabSet').classList.toggle('on', !proc);
+  try { localStorage.setItem(TAB_KEY, proc ? 'proc' : 'set'); } catch (e) { /* storage blocked */ }
+  drawBoard();
+}
+$('tabSet').onclick = () => setTab(false);
+$('tabProc').onclick = () => setTab(true);
+$('procSel').onchange = async e => { await procLoad(e.target.value); if (P.def) procStart(); };
+$('procFrom').onchange = () => { if (P.def) procStart(); };
+$('procStart').onclick = procStart;
+$('pOk').onclick = () => procVoice('OK', 'ok', 'button');
+$('pNg').onclick = () => procVoice('NG', 'ng', 'button');
+$('pBack').onclick = () => procVoice('戻る', 'back', 'button');
+$('pRedo').onclick = () => procVoice('やり直し', 'redo', 'button');
+$('board').onclick = () => { P.zoom = !P.zoom; $('board').classList.toggle('zoom', P.zoom); drawBoard(); };
+new ResizeObserver(drawBoard).observe($('boardWrap'));
+async function procInit() {
+  let saved = '', tab = '';
+  try { saved = localStorage.getItem(PROC_KEY) || ''; tab = localStorage.getItem(TAB_KEY) || ''; } catch (e) { /* storage blocked */ }
+  if (tab === 'proc') setTab(true);
+  try {
+    const { procedures } = await api('/api/procedures');
+    $('procSel').innerHTML = '<option value="">（手順を選ぶ）</option>' + procedures.map(p =>
+      `<option value="${esc(p.name)}">${p.problems.length ? '⚠ ' : ''}${esc(p.title || p.name)}</option>`).join('');
+    if (procedures.some(p => p.name === saved)) { $('procSel').value = saved; await procLoad(saved); if (P.def) await procStart(); } else showStep();
+  } catch (e) { $('procErr').textContent = '手順の一覧を読めません: ' + e.message; }
+  pollMarks();
+}
+
+(async () => {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (e) { saved = null; }
+  if (saved) { const { mode, ...rest } = saved; await post('/api/config', rest); }
+  draw(null); tick(); devInfo(); procInit();
+})();
+</script>
+</body>
+</html>

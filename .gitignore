@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+
+# data written by the tools when run from inside this repo
+runs/
+boards/
+procedures/
+marks.jsonl
+fit-lab/sample/*/campaign.json.bak

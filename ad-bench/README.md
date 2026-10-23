@@ -47,8 +47,10 @@ Defaults for `record`: 200 kS/s per channel, 3 s, CH1 span 5 V centred on 4 V
 (covers 1.5–6.5 V), CH2 span 0.5 V. Raise `--ch1-range` / `--ch1-offset` if a
 spike can exceed the span. `--tcp-line` is sent to `--tcp HOST:PORT` (a
 newline is added) `--send-delay` (0.3 s) after recording starts; the reply (up
-to a newline or 1.5 s) goes into `summary.json` `events`. Nothing is sent
-unless both `--tcp` and `--tcp-line` are given.
+to a newline or 1.5 s) goes into `summary.json` `events`. For a device that
+takes one JSON line, `--tcp-kv "cmd=ping n=1"` builds `{"cmd": "ping", "n": 1}`
+for you (numbers become numbers), which avoids JSON quoting in cmd / PowerShell.
+Nothing is sent unless `--tcp` and one of `--tcp-line` / `--tcp-kv` are given.
 
 ## Notes
 

@@ -13,7 +13,8 @@ current directory).
   python adbench.py record --seconds 3 --ch1-offset 4 --ch2-shunt 0.05 \
          --tcp <host>:<port> --tcp-line '<one line the device understands>'
 
-Nothing is sent anywhere unless both --tcp and --tcp-line are given.
+Nothing is sent anywhere unless --tcp and one of --tcp-line / --tcp-kv are given.
+--tcp-kv "cmd=ping n=1" sends {"cmd": "ping", "n": 1} (easier to type in cmd / PowerShell than raw JSON).
 """
 import argparse
 import json
@@ -98,6 +99,22 @@ def tcp_send(target, line):
             pass
     s.close()
     return data.decode('utf-8', 'replace').strip()
+
+
+def kv_to_json(text):
+    """'cmd=pwm_tone hz=80 amp=1.0' -> '{"cmd": "pwm_tone", "hz": 80, "amp": 1.0}' (numbers become numbers)."""
+    req = {}
+    for part in (text or '').split():
+        k, _, v = part.partition('=')
+        for conv in (int, float):
+            try:
+                req[k] = conv(v)
+                break
+            except ValueError:
+                pass
+        else:
+            req[k] = v
+    return json.dumps(req)
 
 
 # ---------------------------------------------------------------- commands
@@ -204,11 +221,12 @@ def cmd_record(args):
     events = []
 
     def on_start():
-        if args.tcp and args.tcp_line:
+        line = args.tcp_line or (kv_to_json(args.tcp_kv) if args.tcp_kv else None)
+        if args.tcp and line:
             time.sleep(args.send_delay)
-            resp = tcp_send(args.tcp, args.tcp_line)
-            events.append({'t_after_start_s': args.send_delay, 'to': args.tcp, 'sent': args.tcp_line, 'reply': resp})
-            print('sent', args.tcp_line, '->', resp)
+            resp = tcp_send(args.tcp, line)
+            events.append({'t_after_start_s': args.send_delay, 'to': args.tcp, 'sent': line, 'reply': resp})
+            print('sent', line, '->', resp)
 
     hdwf = open_device()
     try:
@@ -416,7 +434,9 @@ def main():
     pr.add_argument('--ch2-shunt', type=float, default=0.0, help='shunt (ohm) to convert CH2 to amps; 0 = volts only')
     pr.add_argument('--no-ch2', action='store_true')
     pr.add_argument('--tcp', metavar='HOST:PORT', help='with --tcp-line, the line is sent here once recording starts')
-    pr.add_argument('--tcp-line', help='one text line to send (a newline is added); the reply goes into summary.json')
+    snd = pr.add_mutually_exclusive_group()
+    snd.add_argument('--tcp-line', help='one text line to send (a newline is added); the reply goes into summary.json')
+    snd.add_argument('--tcp-kv', help='key=value pairs sent as one JSON line, e.g. "cmd=ping n=1" (no JSON quoting needed)')
     pr.add_argument('--send-delay', type=float, default=0.3, help='seconds after the record starts')
     args = p.parse_args()
     {'devices': cmd_devices, 'selftest': cmd_selftest, 'impedance': cmd_impedance, 'record': cmd_record,

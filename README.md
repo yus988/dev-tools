@@ -24,6 +24,13 @@ measurement results in the workspace of the project that uses them, and pass
 that folder to the tool (`--root` / `--data` or the environment variable named
 in each README). Only neutral samples are kept here.
 
+## For other people
+
+These were written for my own work and are mostly driven by an AI agent
+(Claude Code / Codex), so the READMEs are short. Ask your agent to read a
+tool's README and run it for you; that is the intended way to use them.
+Issues and requests are not tracked. License: MIT (see `LICENSE`).
+
 ## Location on a PC
 
 Agents find the clone through `~/.agent-core/tools.conf`:

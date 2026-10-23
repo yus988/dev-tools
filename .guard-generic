@@ -1,0 +1,1 @@
+# この repo は組織・案件に依存しない（git-hooks/guard.py が generic_denylist の語を止める目印）。

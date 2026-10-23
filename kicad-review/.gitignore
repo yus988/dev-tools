@@ -1,0 +1,3 @@
+# data written when run with --data inside this folder (the default is the current folder)
+reviews/
+cache/

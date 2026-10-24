@@ -657,15 +657,30 @@ function renderDetail() {
   $('detBody').querySelectorAll('.figs img').forEach(im => im.addEventListener('click', () => openFigure(im.src)));
 }
 
+// the item d rows away from id in the list as shown (id null: the first row, or the last when going up)
+function neighbor(id, d) {
+  const ids = [...document.querySelectorAll('#list .item')].map(el => el.dataset.id);
+  const i = id ? ids.indexOf(id) : -1;
+  if (i < 0) return d < 0 ? ids[ids.length - 1] : ids[0];
+  return ids[i + d];
+}
+
+// A status press moves on to the next row. 質問 / 修正を依頼 with an empty comment box stay, so the request can be written
+// (sending it then moves on); with text in the box, the text goes with the status.
 async function setStatus(btn) {
-  const id = S.sel, it = S.items[id];
+  const id = S.sel, it = S.items[id], ta = $('comment'), text = ta.value.trim();
   const status = it.status === btn.dataset.st ? '未確認' : btn.dataset.st;
+  const needsText = status === '質問' || status === '修正を依頼';
+  const next = neighbor(id, 1);
   try {
-    const r = await api('/api/review/user', { id, status });
+    const r = await api('/api/review/user', needsText && text ? { id, status, comment: text } : { id, status });
     S.items[id] = stripId(r);
-    renderAll();
+    if (needsText && text) { ta.value = ''; fitComment(); }
+    if (status !== '未確認' && !(needsText && !text) && next) select(next, true);
+    else renderAll();
     const b = document.querySelector('.review-btns button[data-st="' + btn.dataset.st + '"]');
-    notice(b || btn, '送信しました');
+    if (needsText && !text) { ta.focus(); notice(b || btn, '内容を書いて Ctrl+Enter で送信'); }
+    else notice(b || btn, '送信しました');
   } catch (e) { notice(btn, 'エラー: ' + e.message); }
 }
 
@@ -682,12 +697,14 @@ function fitComment() {               // the comment box grows with its text, up
 async function sendComment() {
   const id = S.sel, ta = $('comment'), text = ta.value.trim();
   if (!id || !text) return;
+  const next = neighbor(id, 1);
   try {
     const r = await api('/api/review/user', { id, comment: text });
     ta.value = '';
     fitComment();
     S.items[id] = stripId(r);
-    renderAll();
+    if (next) select(next, true);     // sent: on to the next row
+    else renderAll();
     notice($('send'), '送信しました');
   } catch (e) { notice($('send'), 'エラー: ' + e.message); }
 }
@@ -813,6 +830,13 @@ function initLayout() {
     if (!$('pop').hidden) { hidePop(); return; }
     if (/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) { document.activeElement.blur(); return; }
     deselect();
+  });
+  document.addEventListener('keydown', e => {   // ↑ / ↓: the previous / next row of the list (not while typing)
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) || !$('lb').hidden || !$('pop').hidden) return;
+    const id = neighbor(S.sel, e.key === 'ArrowDown' ? 1 : -1);
+    e.preventDefault();
+    if (id) select(id, true);
   });
   document.addEventListener('pointerdown', e => { if (!$('pop').hidden && !e.target.closest('#pop') && !e.target.closest('#view')) hidePop(); });
   addEventListener('resize', redraw);

@@ -703,10 +703,15 @@ function select(id, move) {
   markSeen(id);
   if (move) {
     clearWhole();
-    const side = (it.sides || ['F'])[0];
+    const pads = itemPads(it);
+    let side = (it.sides || ['F'])[0];
+    if (pads.length) {                 // pins given: show the side the first pin is on (an SMD pad is on one side only)
+      const L = pads[0][1].layers, f = L.includes('F.Cu'), bk = L.includes('B.Cu');
+      if (f && !bk) side = 'F';
+      else if (bk && !f) side = 'B';
+    }
     if (side === 'F' || side === 'B') setPreset(side);
     else setPreset('In', side);
-    const pads = itemPads(it);
     if (pads.length) {                 // pins given: frame the pins, closer than an area
       const xs = pads.flatMap(([, p]) => padPoly(p).map(q => q[0])), ys = pads.flatMap(([, p]) => padPoly(p).map(q => q[1]));
       const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);

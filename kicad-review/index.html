@@ -700,14 +700,12 @@ function fitComment() {               // the comment box grows with its text, up
 async function sendComment() {
   const id = S.sel, ta = $('comment'), text = ta.value.trim();
   if (!id || !text) return;
-  const next = neighbor(id, 1);
   try {
     const r = await api('/api/review/user', { id, comment: text });
     ta.value = '';
     fitComment();
     S.items[id] = stripId(r);
-    if (next) select(next, true);     // sent: on to the next row
-    else renderAll();
+    renderAll();                      // sent: stay on this row (only a status press moves on)
     notice($('send'), '送信しました');
   } catch (e) { notice($('send'), 'エラー: ' + e.message); }
 }

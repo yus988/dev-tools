@@ -58,6 +58,7 @@ aside { grid-column: 1; display: flex; flex-direction: column; background: var(-
 .item.fixed .t { text-decoration: line-through; text-decoration-color: var(--st-done); }
 #progress .fixed { color: var(--st-done); font-weight: 400; }
 .item .new { position: absolute; right: 8px; top: 6px; background: var(--link); color: #fff; font-size: 11px; border-radius: 8px; padding: 0 6px; }
+.item .new.wait { background: #fff; color: var(--link); border: 1px solid var(--link); line-height: 14px; }
 .chip { display: inline-block; font-size: 11px; line-height: 16px; padding: 0 5px; border-radius: 3px; color: #fff; font-weight: 600; vertical-align: 1px; }
 .chip.owner { background: #fff; color: #444; border: 1px solid #bbb; font-weight: 400; line-height: 14px; }
 .s-未確認 { color: var(--st-open); } .s-自分で修正, .s-修正を依頼 { color: var(--st-work); }
@@ -588,6 +589,8 @@ function hidePop() { $('pop').hidden = true; $('pop').innerHTML = ''; }
 
 // ------------------------------------------------------------ item list
 function agentCount(it) { return (it.thread || []).filter(m => m.who === 'agent').length; }
+// a comment of the user that the agent has not answered yet
+function waitingReply(it) { const th = it.thread || []; return th.length > 0 && th[th.length - 1].who === 'user'; }
 
 function renderList() {
   const list = $('list'), top = list.scrollTop;
@@ -599,7 +602,9 @@ function renderList() {
   let html = '';
   for (const sev of [...SEVERITIES, '']) {
     const grp = ids.filter(id => sev ? S.items[id].severity === sev : !SEVERITIES.includes(S.items[id].severity));
-    const shown = grp.filter(id => S.showDone || !DONE.has(S.items[id].status) || id === S.sel);
+    // a finished item stays in the list while a reply is on its way or not read yet (mark it done and still see the answer)
+    const shown = grp.filter(id => S.showDone || !DONE.has(S.items[id].status) || id === S.sel ||
+      waitingReply(S.items[id]) || agentCount(S.items[id]) > (S.seen[id] || 0));
     if (!shown.length) continue;
     html += '<div class="sev-h"><span>' + esc(sev || 'その他') + '</span><small>' + shown.length + ' 件</small></div>';
     for (const id of shown) {
@@ -609,7 +614,7 @@ function renderList() {
         '<span class="st s-' + esc(st) + '" title="' + esc(ST_NAME[st] || st) + '">' + (ST_MARK[st] || '○') + '</span>' +
         '<span class="id">' + esc(id) + '</span>' +
         '<span class="t"><span class="chips">' + sevChip(it.severity) + '<span class="chip owner">' + esc(it.owner || '未定') + '</span></span>' + esc(it.title) + '</span>' +
-        (isNew ? '<span class="new">返信</span>' : '') + '</div>';
+        (isNew ? '<span class="new">返信</span>' : waitingReply(it) ? '<span class="new wait">返信待ち</span>' : '') + '</div>';
     }
   }
   list.innerHTML = html || '<div class="empty">' + (all ? '残りの項目はありません（「完了も表示」で全部）' : '項目はまだありません') + '</div>';

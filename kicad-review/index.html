@@ -633,6 +633,7 @@ function renderDetail() {
     (it.near ? '<span class="meaning">' + esc(it.near) + '</span>' : '') + '</div>' +
     (it.pins && it.pins.length ? '<div class="row"><span class="k">ピン</span>' + esc(it.pins.join(', ')) + '<span class="meaning">（基板の図で矢印）</span></div>' : '') +
     '<div class="row"><span class="k">状態</span><span class="badge s-' + esc(st) + '">' + (ST_MARK[st] || '') + ' ' + esc(st) + '</span></div>';
+  if (it.signal) h += '<h4>信号・電流・注意</h4><div class="text">' + esc(it.signal) + '</div>';
   if (it.ideal) h += '<h4>理想</h4><div class="text">' + esc(it.ideal) + '</div>';
   if (it.background) h += '<h4>経緯</h4><div class="text bg">' + esc(it.background) + '</div>';
   if (it.text) h += '<h4>内容</h4><div class="text">' + esc(it.text) + '</div>';

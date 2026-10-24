@@ -39,7 +39,7 @@ NEAR_PAD_MM = 1.5             # a click this close to a pad names the pad
 WATCH_S = 2.0
 CACHE_KEEP = 2                # current export and the one before
 # ask / ideal / background are the item's three sections (依頼 / 理想 / 経緯); text / action are the older pair
-ITEM_FIELDS = ('title', 'severity', 'owner', 'sides', 'x', 'y', 'r', 'w', 'h', 'refs', 'ask', 'ideal', 'background',
+ITEM_FIELDS = ('title', 'severity', 'owner', 'sides', 'x', 'y', 'r', 'w', 'h', 'refs', 'pins', 'ask', 'ideal', 'background',
                'text', 'action', 'status', 'thread', 'near')
 
 

@@ -169,6 +169,7 @@ const DONE = new Set(['このまま', '修正済み']);
 const ST_MARK = { '未確認': '○', 'このまま': '－', '自分で修正': '✎', '修正を依頼': '⚑', '質問': '？', '修正済み': '✔' };
 const ST_COLOR = { '未確認': '#ffd400', '自分で修正': '#ff8c00', '修正を依頼': '#ff8c00', '質問': '#ff3cff', 'このまま': '#9aa0a6', '修正済み': '#2ecc40' };
 const FOCUS_MM = 20;          // selecting an item shows about this much board around it
+const PIN_FOCUS_MM = 9;       // ... or around its pins, when it names them
 const MAX_SCALE = 150;        // px per mm
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -431,7 +432,55 @@ function drawOverlay() {
     parts.push('<g opacity="' + op + '">' + shape + '<text x="' + lx + '" y="' + ly + '" fill="' + col + '"' +
       (sel ? ' style="font-size:15px"' : '') + '>' + esc(id) + (fixed ? ' ✔' : '') + '</text></g>');
   }
+  if (S.sel && S.items[S.sel]) parts.push(pinArrows(S.items[S.sel], ST_COLOR[S.items[S.sel].status] || ST_COLOR['未確認']));
   ov.innerHTML = parts.join('');
+}
+
+// the pads an item points at: its pins (["U3.2", ...]), else the refs written as REF.NUM
+function itemPads(it) {
+  const d = S.board && S.board.dump;
+  if (!d) return [];
+  const specs = it.pins && it.pins.length ? it.pins : (it.refs || []).filter(r => /\.[^.]+$/.test(r));
+  const out = [];
+  for (const sp of specs) {
+    const k = sp.lastIndexOf('.'), ref = sp.slice(0, k), num = sp.slice(k + 1);
+    for (const p of d.pads) if (p.ref === ref && p.num === num) out.push([sp, p]);
+  }
+  return out;
+}
+function padPoly(p) {
+  if (p.poly && p.poly.length) return p.poly;
+  const w = p.size[0] / 2, h = p.size[1] / 2;
+  return [[p.x - w, p.y - h], [p.x + w, p.y - h], [p.x + w, p.y + h], [p.x - w, p.y + h]];
+}
+// selected item: outline each pin and point an arrow at it, coming from outside the footprint (away from its centre)
+function pinArrows(it, col) {
+  const v = S.view, d = S.board.dump, out = [];
+  const fpAt = {};
+  for (const f of d.footprints) fpAt[f.ref] = f;
+  for (const [sp, p] of itemPads(it)) {
+    const poly = padPoly(p);
+    const pts = poly.map(q => (q[0] * v.s + v.tx).toFixed(1) + ',' + (q[1] * v.s + v.ty).toFixed(1)).join(' ');
+    out.push('<polygon points="' + pts + '" fill="none" stroke="#000" stroke-width="5"/>' +
+      '<polygon points="' + pts + '" fill="none" stroke="' + col + '" stroke-width="2.5"/>');
+    const f = fpAt[p.ref];
+    let ux = f ? p.x - f.x : 0, uy = f ? p.y - f.y : 0;
+    const n = Math.hypot(ux, uy);
+    if (n < 1e-3) { ux = -Math.SQRT1_2; uy = -Math.SQRT1_2; } else { ux /= n; uy /= n; }
+    const xs = poly.map(q => q[0]), ys = poly.map(q => q[1]);
+    const rad = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 * v.s;
+    const cx = p.x * v.s + v.tx, cy = p.y * v.s + v.ty;
+    const tx = cx + ux * (rad + 3), ty = cy + uy * (rad + 3);            // tip just outside the pad
+    const L = 38, ex = tx + ux * L, ey = ty + uy * L;                    // tail
+    const bx = tx + ux * 11, by = ty + uy * 11, nx = -uy * 5.5, ny = ux * 5.5;
+    const head = tx + ',' + ty + ' ' + (bx + nx) + ',' + (by + ny) + ' ' + (bx - nx) + ',' + (by - ny);
+    out.push('<line x1="' + ex + '" y1="' + ey + '" x2="' + bx + '" y2="' + by + '" stroke="#000" stroke-width="6"/>' +
+      '<polygon points="' + head + '" fill="#000" stroke="#000" stroke-width="3" stroke-linejoin="round"/>' +
+      '<line x1="' + ex + '" y1="' + ey + '" x2="' + bx + '" y2="' + by + '" stroke="' + col + '" stroke-width="3"/>' +
+      '<polygon points="' + head + '" fill="' + col + '"/>' +
+      '<text x="' + (ex + ux * 4) + '" y="' + (ey + uy * 4 + 4) + '" fill="' + col + '" text-anchor="' + (ux >= 0 ? 'start' : 'end') + '">' + esc(sp) + '</text>');
+  }
+  return out.join('');
 }
 
 function hitItem(px, py) {
@@ -572,6 +621,7 @@ function renderDetail() {
     '<div class="row"><span class="k">場所</span>' + esc(where) + '</div>' +
     '<div class="row"><span class="k">部品</span>' + (it.refs && it.refs.length ? esc(it.refs.join(', ')) : '<span class="none">-</span>') +
     (it.near ? '<span class="meaning">' + esc(it.near) + '</span>' : '') + '</div>' +
+    (it.pins && it.pins.length ? '<div class="row"><span class="k">ピン</span>' + esc(it.pins.join(', ')) + '<span class="meaning">（基板の図で矢印）</span></div>' : '') +
     '<div class="row"><span class="k">状態</span><span class="badge s-' + esc(st) + '">' + (ST_MARK[st] || '') + ' ' + esc(st) + '</span></div>';
   if (it.ideal) h += '<h4>理想</h4><div class="text">' + esc(it.ideal) + '</div>';
   if (it.background) h += '<h4>経緯</h4><div class="text bg">' + esc(it.background) + '</div>';
@@ -623,8 +673,15 @@ function select(id, move) {
     const side = (it.sides || ['F'])[0];
     if (side === 'F' || side === 'B') setPreset(side);
     else setPreset('In', side);
-    const span = Math.max(FOCUS_MM, (it.w || 0) * 1.5, (it.h || 0) * 1.5, (it.r || 0) * 4);
-    focusOn(it.x, it.y, span);
+    const pads = itemPads(it);
+    if (pads.length) {                 // pins given: frame the pins, closer than an area
+      const xs = pads.flatMap(([, p]) => padPoly(p).map(q => q[0])), ys = pads.flatMap(([, p]) => padPoly(p).map(q => q[1]));
+      const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+      focusOn((x0 + x1) / 2, (y0 + y1) / 2, Math.max(PIN_FOCUS_MM, (x1 - x0) * 1.6, (y1 - y0) * 1.6));
+    } else {
+      const span = Math.max(FOCUS_MM, (it.w || 0) * 1.5, (it.h || 0) * 1.5, (it.r || 0) * 4);
+      focusOn(it.x, it.y, span);
+    }
   }
   renderAll();
   const row = document.querySelector('#list .item.sel');

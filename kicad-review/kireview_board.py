@@ -29,7 +29,8 @@ DUMP = os.path.join(HERE, 'kireview_dump.py')
 KICAD_BIN = 'C:/Program Files/KiCad/10.0/bin'
 SEVERITIES = ('必須', '推奨', '任意', '情報')
 OWNERS = ('人', 'エージェント', '未定')
-# the page offers 修正済み / 質問 / このまま; 自分で修正 / 修正を依頼 stay readable for older reviews
+# the page offers 修正済み / 直して (修正を依頼) / OK (このまま); 質問 marks a question asked at a point of the board (new) and
+# older reviews; 自分で修正 stays readable
 STATUSES = ('未確認', 'このまま', '自分で修正', '修正を依頼', '質問', '修正済み')
 ASKING = ('修正を依頼', '質問')           # a user status that waits for the agent
 SIDE_KEY = re.compile(r'^(F|B|In\d+)$')

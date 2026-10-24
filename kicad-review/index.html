@@ -71,6 +71,10 @@ aside { grid-column: 1; display: flex; flex-direction: column; background: var(-
 #detail h4 { margin: 8px 0 3px; font-size: 12px; color: var(--muted); }
 #detail .text { white-space: pre-wrap; background: #fff; border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; }
 #detail .action { white-space: pre-wrap; background: #eef4ff; border-radius: 4px; padding: 5px 8px; }
+#detail .req { white-space: pre-wrap; background: #fff1d6; border-left: 4px solid var(--sev-推奨); border-radius: 4px; padding: 6px 9px;
+  font-weight: 600; font-size: 14px; margin: 6px 0 4px; }
+#detail .req::before { content: '依頼'; display: block; font-size: 11px; color: var(--sev-推奨); margin-bottom: 1px; }
+#detail .bg { color: #555; }
 #detail .none { color: var(--muted); }
 .review-btns { display: flex; gap: 4px; margin: 10px 0 6px; flex-wrap: wrap; }
 .review-btns { flex-wrap: nowrap; }
@@ -98,12 +102,15 @@ main { grid-column: 3; display: grid; grid-template-rows: auto 1fr; min-width: 0
 #layerBoxes label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; font-size: 12px; }
 #layerBoxes i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 #coord { color: var(--muted); font-size: 12px; width: 11em; font-variant-numeric: tabular-nums; }
+#padTextBox { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; font-size: 12px; }
 #view { position: relative; overflow: hidden; background: #000; cursor: grab; touch-action: none; }
 #view.drag { cursor: grabbing; }
 #layers { position: absolute; inset: 0; z-index: 0; }
 #layers img { position: absolute; left: 0; top: 0; max-width: none; pointer-events: none; user-select: none; }
 #ov { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; pointer-events: none; }
 #ov text { font: 700 13px system-ui, sans-serif; paint-order: stroke; stroke: #000; stroke-width: 3px; stroke-linejoin: round; }
+#ov .pl text { font-family: system-ui, sans-serif; font-weight: 600; fill: #fff; stroke: rgba(0,0,0,.55); stroke-width: 1.5px;
+  text-anchor: middle; dominant-baseline: central; }
 #pop { position: absolute; z-index: 5; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px;
   box-shadow: 0 4px 16px rgba(0,0,0,.35); min-width: 220px; cursor: default; }
 #pop[hidden] { display: none; }
@@ -137,6 +144,7 @@ main { grid-column: 3; display: grid; grid-template-rows: auto 1fr; min-width: 0
   <div id="tools">
     <div id="presets"><button data-p="F">表</button><button data-p="B">裏</button><button data-p="In">内層</button><button data-p="all">全部</button></div>
     <div id="layerBoxes"></div>
+    <label id="padTextBox" title="表示している面のパッドに、ピンの番号とネットの名前を出す（拡大すると出る）"><input type="checkbox" id="padText">ピン・ネット</label>
     <button id="fit">全体</button>
     <span id="coord"></span>
   </div>
@@ -199,6 +207,7 @@ const S = {
   items: {}, rev: -1, file: '',
   sel: null,
   showDone: store.get('kireview.showDone') === '1',
+  padText: store.get('kireview.padText') !== '0',
   view: { s: 0, tx: 0, ty: 0 },   // screen px = board mm * s + t
   layers: null,                // {preset, active: 'F' | 'B' | 'In1' ..., vis: [layer names]}
   seen: null,                  // {id: agent messages already seen}
@@ -356,11 +365,49 @@ function markerGeom(it) {
   return { box: false, cx, cy, r: Math.max(9, (it.r || 1) * v.s) };
 }
 
+// pad number and net name on the pads of the active copper layer, like the KiCad editor; only where a pad is big enough on screen
+function shortNet(n) {
+  if (!n || n.startsWith('unconnected-')) return '';
+  if (n.startsWith('/')) n = n.slice(n.lastIndexOf('/') + 1);    // hierarchical path: the last name, as KiCad shows it
+  return n.replace(/\{slash\}/g, '/');
+}
+function padLabels(vis) {
+  const lay = cuLayer(S.layers.active), d = S.board.dump;
+  if (!S.padText || !d || !vis.has(lay)) return '';
+  const v = S.view, W = view.clientWidth, H = view.clientHeight, out = [];
+  const fit = (t, L, maxH) => Math.min(maxH, L * 0.9 / Math.max(1, t.length * 0.62));
+  for (const p of d.pads) {
+    if (!p.layers.includes(lay)) continue;
+    let x0 = p.x - p.size[0] / 2, x1 = p.x + p.size[0] / 2, y0 = p.y - p.size[1] / 2, y1 = p.y + p.size[1] / 2;
+    if (p.poly && p.poly.length) {
+      const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]);
+      x0 = Math.min(...xs); x1 = Math.max(...xs); y0 = Math.min(...ys); y1 = Math.max(...ys);
+    }
+    const pw = (x1 - x0) * v.s, ph = (y1 - y0) * v.s;
+    const cx = (x0 + x1) / 2 * v.s + v.tx, cy = (y0 + y1) / 2 * v.s + v.ty;
+    if (cx + pw < 0 || cx - pw > W || cy + ph < 0 || cy - ph > H) continue;
+    const vert = ph > pw * 1.15, L = vert ? ph : pw, sh = vert ? pw : ph;
+    const num = p.num || '', net = shortNet(p.net);
+    if (sh < 8 || (!num && !net)) continue;
+    const g = vert ? '<g class="pl" transform="rotate(-90 ' + cx + ' ' + cy + ')">' : '<g class="pl">';
+    const txt = (t, y, f) => '<text x="' + cx + '" y="' + y + '" style="font-size:' + f.toFixed(1) + 'px">' + esc(t) + '</text>';
+    const f2 = net ? fit(net, L, sh * 0.3) : 0;
+    if (net && sh >= 16 && f2 >= 4.5) {
+      const f1 = num ? fit(num, L, sh * 0.42) : 0;
+      out.push(g + (num ? txt(num, cy - sh * 0.2, f1) : '') + txt(net, cy + (num ? sh * 0.2 : 0), f2) + '</g>');
+    } else if (num) {
+      const f1 = fit(num, L, sh * 0.6);
+      if (f1 >= 5) out.push(g + txt(num, cy, f1) + '</g>');
+    }
+  }
+  return out.join('');
+}
+
 function drawOverlay() {
   const ov = $('ov');
   if (!S.board) return;
   const vis = new Set(S.layers.vis);
-  const parts = [];
+  const parts = [padLabels(vis)];
   const ids = Object.keys(S.items).sort((a, b) => (a === S.sel) - (b === S.sel) || byId(a, b));
   for (const id of ids) {
     const it = S.items[id], g = markerGeom(it);
@@ -519,12 +566,15 @@ function renderDetail() {
   const st = it.status || '未確認';
   const where = (it.sides || []).map(sideName).join('・') + '　x ' + Number(it.x).toFixed(2) + '  y ' + Number(it.y).toFixed(2) + ' mm';
   let h = '<div class="t">' + esc(S.sel) + '　' + esc(it.title) + '</div>' +
+    (it.ask ? '<div class="req">' + esc(it.ask) + '</div>' : '') +
     '<div class="row"><span class="k">重要度</span>' + sevChip(it.severity) + '<span class="meaning">' + esc(SEV_MEANING[it.severity] || '') + '</span></div>' +
     '<div class="row"><span class="k">担当</span><span class="chip owner">' + esc(it.owner || '未定') + '</span><span class="meaning">' + esc(OWNER_MEANING[it.owner] || '') + '</span></div>' +
     '<div class="row"><span class="k">場所</span>' + esc(where) + '</div>' +
     '<div class="row"><span class="k">部品</span>' + (it.refs && it.refs.length ? esc(it.refs.join(', ')) : '<span class="none">-</span>') +
     (it.near ? '<span class="meaning">' + esc(it.near) + '</span>' : '') + '</div>' +
     '<div class="row"><span class="k">状態</span><span class="badge s-' + esc(st) + '">' + (ST_MARK[st] || '') + ' ' + esc(st) + '</span></div>';
+  if (it.ideal) h += '<h4>理想</h4><div class="text">' + esc(it.ideal) + '</div>';
+  if (it.background) h += '<h4>経緯</h4><div class="text bg">' + esc(it.background) + '</div>';
   if (it.text) h += '<h4>内容</h4><div class="text">' + esc(it.text) + '</div>';
   if (it.action) h += '<h4>直し方</h4><div class="action">' + esc(it.action) + '</div>';
   h += '<div class="review-btns">' + STATUS_BTNS.map(b => '<button data-st="' + b + '" class="' + (st === b ? 'on' : '') + '">' + (BTN_LABEL[b] || b) + '</button>').join('') + '</div>' +
@@ -648,6 +698,8 @@ function initLayout() {
     document.body.style.setProperty('--deth', Math.max(80, Math.min(a.height - 120, a.bottom - e.clientY)) + 'px');
   }, () => store.set('kireview.deth', document.body.style.getPropertyValue('--deth')));
   $('showDone').addEventListener('click', () => { S.showDone = !S.showDone; store.set('kireview.showDone', S.showDone ? '1' : '0'); renderList(); });
+  $('padText').checked = S.padText;
+  $('padText').addEventListener('change', e => { S.padText = e.target.checked; store.set('kireview.padText', S.padText ? '1' : '0'); drawOverlay(); });
   $('send').addEventListener('click', sendComment);
   $('comment').addEventListener('keydown', e => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); sendComment(); } });
   $('fit').addEventListener('click', fitBoard);

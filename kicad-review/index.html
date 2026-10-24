@@ -9,7 +9,7 @@
 :root {
   --bg: #f4f4f2; --panel: #ffffff; --line: #d8d8d4; --text: #222; --muted: #6b6b66; --sel: #ff00aa; --link: #2b6fd6;
   --sev-必須: #d33a2c; --sev-推奨: #e07800; --sev-任意: #2b6fd6; --sev-情報: #8a8a85;
-  --st-open: #e0b400; --st-work: #ff8c00; --st-ask: #e01ee0; --st-done: #1a9a36;
+  --st-open: #e0b400; --st-work: #ff8c00; --st-ask: #e01ee0; --st-done: #1a9a36; --st-keep: #7a7f85;
   --listw: 400px; --deth: 50%;
 }
 * { box-sizing: border-box; }
@@ -33,7 +33,7 @@ aside { grid-column: 1; display: flex; flex-direction: column; background: var(-
 #split { grid-column: 2; cursor: col-resize; background: var(--line); }
 #split:hover, #split.drag, #hsplit:hover, #hsplit.drag { background: #a8a8a2; }
 .list-h { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--muted); }
-#progress { width: 9em; font-weight: 600; color: var(--text); white-space: nowrap; }
+#progress { width: 16em; font-weight: 600; color: var(--text); white-space: nowrap; }
 .list-h .grow { flex: 1; }
 #showDone { width: 7.5em; font-size: 12px; padding: 2px 4px; }
 #list { flex: 1 1 0; overflow: auto; min-height: 60px; }
@@ -51,11 +51,18 @@ aside { grid-column: 1; display: flex; flex-direction: column; background: var(-
 .item .chips { display: inline-flex; gap: 3px; margin-right: 4px; }
 .item .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 3.2em; }
 .item.done .t, .item.done .id { opacity: .5; }
+.item.fixed { background: #edf9f0; }
+.item.fixed .t { text-decoration: line-through; text-decoration-color: var(--st-done); }
+#progress .fixed { color: var(--st-done); font-weight: 400; }
 .item .new { position: absolute; right: 8px; top: 6px; background: var(--link); color: #fff; font-size: 11px; border-radius: 8px; padding: 0 6px; }
 .chip { display: inline-block; font-size: 11px; line-height: 16px; padding: 0 5px; border-radius: 3px; color: #fff; font-weight: 600; vertical-align: 1px; }
 .chip.owner { background: #fff; color: #444; border: 1px solid #bbb; font-weight: 400; line-height: 14px; }
 .s-未確認 { color: var(--st-open); } .s-自分で修正, .s-修正を依頼 { color: var(--st-work); }
-.s-質問 { color: var(--st-ask); } .s-このまま, .s-修正済み { color: var(--st-done); }
+.s-質問 { color: var(--st-ask); } .s-修正済み { color: var(--st-done); } .s-このまま { color: var(--st-keep); }
+.badge { display: inline-block; padding: 0 8px; border-radius: 9px; color: #fff; font-weight: 700; background: var(--st-open); }
+.badge.s-修正済み { background: var(--st-done); color: #fff; } .badge.s-このまま { background: var(--st-keep); color: #fff; }
+.badge.s-質問 { background: var(--st-ask); color: #fff; } .badge.s-自分で修正, .badge.s-修正を依頼 { background: var(--st-work); color: #fff; }
+.badge.s-未確認 { color: #222; }
 .empty { padding: 16px; color: var(--muted); }
 #detail .t { font-weight: 700; font-size: 14px; }
 #detail .row { margin: 3px 0; }
@@ -68,8 +75,9 @@ aside { grid-column: 1; display: flex; flex-direction: column; background: var(-
 .review-btns { display: flex; gap: 4px; margin: 10px 0 6px; flex-wrap: wrap; }
 .review-btns { flex-wrap: nowrap; }
 .review-btns button { flex: 1 1 0; min-width: 0; padding: 3px 0; }
-.review-btns button.on[data-st="このまま"], .review-btns button.on[data-st="修正済み"] { background: var(--st-done); border-color: var(--st-done); }
-.review-btns button.on[data-st="自分で修正"], .review-btns button.on[data-st="修正を依頼"] { background: var(--st-work); border-color: var(--st-work); }
+.review-btns button[data-st="修正済み"] { flex-grow: 1.4; color: var(--st-done); border-color: var(--st-done); font-weight: 700; }
+.review-btns button.on[data-st="修正済み"] { background: var(--st-done); border-color: var(--st-done); color: #fff; }
+.review-btns button.on[data-st="このまま"] { background: var(--st-keep); border-color: var(--st-keep); }
 .review-btns button.on[data-st="質問"] { background: var(--st-ask); border-color: var(--st-ask); }
 .review-hint { color: var(--muted); font-size: 11px; margin: -2px 0 6px; }
 .msg { margin: 4px 0; padding: 5px 8px; border-radius: 6px; white-space: pre-wrap; max-width: 92%; }
@@ -146,10 +154,12 @@ const SEVERITIES = ['必須', '推奨', '任意', '情報'];
 const SEV_MEANING = { '必須': '直さないと動かない・壊れる・製造で不良', '推奨': '直した方がよい（性能・信頼性）',
   '任意': 'できれば直す', '情報': 'そのままでよい・変更の報告' };
 const OWNER_MEANING = { '人': 'KiCad で手で直す方が早い', 'エージェント': 'エージェントが直す', '未定': '担当はまだ決めていない' };
-const STATUS_BTNS = ['このまま', '自分で修正', '修正を依頼', '質問', '修正済み'];
+// buttons the page offers; 自分で修正 / 修正を依頼 are older statuses that still display (a fix is asked for in a comment)
+const STATUS_BTNS = ['修正済み', '質問', 'このまま'];
+const BTN_LABEL = { '修正済み': '✔ 修正済み' };
 const DONE = new Set(['このまま', '修正済み']);
-const ST_MARK = { '未確認': '○', 'このまま': '✔', '自分で修正': '✎', '修正を依頼': '⚑', '質問': '？', '修正済み': '✔' };
-const ST_COLOR = { '未確認': '#ffd400', '自分で修正': '#ff8c00', '修正を依頼': '#ff8c00', '質問': '#ff3cff', 'このまま': '#2ecc40', '修正済み': '#2ecc40' };
+const ST_MARK = { '未確認': '○', 'このまま': '－', '自分で修正': '✎', '修正を依頼': '⚑', '質問': '？', '修正済み': '✔' };
+const ST_COLOR = { '未確認': '#ffd400', '自分で修正': '#ff8c00', '修正を依頼': '#ff8c00', '質問': '#ff3cff', 'このまま': '#9aa0a6', '修正済み': '#2ecc40' };
 const FOCUS_MM = 20;          // selecting an item shows about this much board around it
 const MAX_SCALE = 150;        // px per mm
 const $ = id => document.getElementById(id);
@@ -355,23 +365,24 @@ function drawOverlay() {
   for (const id of ids) {
     const it = S.items[id], g = markerGeom(it);
     const col = ST_COLOR[it.status] || ST_COLOR['未確認'];
-    const sel = id === S.sel, done = DONE.has(it.status);
+    const sel = id === S.sel, fixed = it.status === '修正済み', done = DONE.has(it.status);
     const onShown = (it.sides || []).some(s => vis.has(cuLayer(s)));
-    const w = sel ? 4 : done ? 1.2 : 2.2;
+    const w = sel ? 4 : done && !fixed ? 1.2 : 2.2;
     const op = S.sel && !sel ? 0.4 : 1;
     const dash = onShown ? '' : ' stroke-dasharray="5 4"';
+    const fill = fixed ? ' fill="' + col + '" fill-opacity="0.22"' : ' fill="none"';
     let shape, lx, ly;
     if (g.box) {
       const r = 'x="' + (g.cx - g.hw) + '" y="' + (g.cy - g.hh) + '" width="' + 2 * g.hw + '" height="' + 2 * g.hh + '"';
-      shape = '<rect ' + r + ' fill="none" stroke="#000" stroke-width="' + (w + 3) + '"/><rect ' + r + ' fill="none" stroke="' + col + '" stroke-width="' + w + '"' + dash + '/>';
+      shape = '<rect ' + r + ' fill="none" stroke="#000" stroke-width="' + (w + 3) + '"/><rect ' + r + fill + ' stroke="' + col + '" stroke-width="' + w + '"' + dash + '/>';
       lx = g.cx + g.hw + 3; ly = g.cy - g.hh - 3;
     } else {
       const c = 'cx="' + g.cx + '" cy="' + g.cy + '" r="' + g.r + '"';
-      shape = '<circle ' + c + ' fill="none" stroke="#000" stroke-width="' + (w + 3) + '"/><circle ' + c + ' fill="none" stroke="' + col + '" stroke-width="' + w + '"' + dash + '/>';
+      shape = '<circle ' + c + ' fill="none" stroke="#000" stroke-width="' + (w + 3) + '"/><circle ' + c + fill + ' stroke="' + col + '" stroke-width="' + w + '"' + dash + '/>';
       lx = g.cx + g.r * 0.72 + 2; ly = g.cy - g.r * 0.72 - 2;
     }
     parts.push('<g opacity="' + op + '">' + shape + '<text x="' + lx + '" y="' + ly + '" fill="' + col + '"' +
-      (sel ? ' style="font-size:15px"' : '') + '>' + esc(id) + '</text></g>');
+      (sel ? ' style="font-size:15px"' : '') + '>' + esc(id) + (fixed ? ' ✔' : '') + '</text></g>');
   }
   ov.innerHTML = parts.join('');
 }
@@ -463,7 +474,8 @@ function renderList() {
   const list = $('list'), top = list.scrollTop;
   const ids = Object.keys(S.items).sort(byId);
   const all = ids.length, left = ids.filter(id => !DONE.has(S.items[id].status)).length;
-  $('progress').textContent = '残り ' + left + ' / 全 ' + all;
+  const fixedN = ids.filter(id => S.items[id].status === '修正済み').length;
+  $('progress').innerHTML = '残り ' + left + ' / 全 ' + all + '<span class="fixed">　✔ 修正済み ' + fixedN + '</span>';
   $('showDone').classList.toggle('on', S.showDone);
   let html = '';
   for (const sev of [...SEVERITIES, '']) {
@@ -474,7 +486,7 @@ function renderList() {
     for (const id of shown) {
       const it = S.items[id], st = it.status || '未確認';
       const isNew = agentCount(it) > (S.seen[id] || 0);
-      html += '<div class="item' + (id === S.sel ? ' sel' : '') + (DONE.has(st) ? ' done' : '') + '" data-id="' + esc(id) + '">' +
+      html += '<div class="item' + (id === S.sel ? ' sel' : '') + (DONE.has(st) ? ' done' : '') + (st === '修正済み' ? ' fixed' : '') + '" data-id="' + esc(id) + '">' +
         '<span class="st s-' + esc(st) + '" title="' + esc(st) + '">' + (ST_MARK[st] || '○') + '</span>' +
         '<span class="id">' + esc(id) + '</span>' +
         '<span class="t"><span class="chips">' + sevChip(it.severity) + '<span class="chip owner">' + esc(it.owner || '未定') + '</span></span>' + esc(it.title) + '</span>' +
@@ -512,11 +524,11 @@ function renderDetail() {
     '<div class="row"><span class="k">場所</span>' + esc(where) + '</div>' +
     '<div class="row"><span class="k">部品</span>' + (it.refs && it.refs.length ? esc(it.refs.join(', ')) : '<span class="none">-</span>') +
     (it.near ? '<span class="meaning">' + esc(it.near) + '</span>' : '') + '</div>' +
-    '<div class="row"><span class="k">状態</span><b class="s-' + esc(st) + '">' + (ST_MARK[st] || '') + ' ' + esc(st) + '</b></div>';
+    '<div class="row"><span class="k">状態</span><span class="badge s-' + esc(st) + '">' + (ST_MARK[st] || '') + ' ' + esc(st) + '</span></div>';
   if (it.text) h += '<h4>内容</h4><div class="text">' + esc(it.text) + '</div>';
   if (it.action) h += '<h4>直し方</h4><div class="action">' + esc(it.action) + '</div>';
-  h += '<div class="review-btns">' + STATUS_BTNS.map(b => '<button data-st="' + b + '" class="' + (st === b ? 'on' : '') + '">' + b + '</button>').join('') + '</div>' +
-    '<div class="review-hint">もう一度押すと未確認に戻ります。修正を依頼・質問はエージェントへ届きます。</div>';
+  h += '<div class="review-btns">' + STATUS_BTNS.map(b => '<button data-st="' + b + '" class="' + (st === b ? 'on' : '') + '">' + (BTN_LABEL[b] || b) + '</button>').join('') + '</div>' +
+    '<div class="review-hint">もう一度押すと未確認に戻ります。質問とコメントはエージェントへ届きます（直してほしい時はコメントに書いてください）。</div>';
   const th = it.thread || [];
   h += '<h4>やりとり</h4>' + (th.length ? th.map(m => '<div class="msg ' + (m.who === 'agent' ? 'agent' : 'user') + '"><small>' +
     (m.who === 'agent' ? 'エージェント' : 'あなた') + '　' + esc(m.time || '') + '</small>' + esc(m.text) + '</div>').join('') : '<div class="none">まだありません</div>');

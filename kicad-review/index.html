@@ -37,7 +37,7 @@ aside { grid-column: 1; display: flex; flex-direction: column; background: var(-
 .list-h { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--muted); }
 #progress { width: 16em; font-weight: 600; color: var(--text); white-space: nowrap; }
 .list-h .grow { flex: 1; }
-#showDone { width: 7.5em; font-size: 12px; padding: 2px 4px; }
+#showDone, #showUnread { width: 7.5em; font-size: 12px; padding: 2px 4px; }
 #list { flex: 1 1 0; overflow: auto; min-height: 60px; }
 #hsplit { flex: 0 0 6px; cursor: row-resize; background: var(--line); }
 #detail { flex: 0 0 var(--deth); display: flex; flex-direction: column; overflow: hidden; background: #fbfbf9; min-height: 0; }
@@ -138,7 +138,7 @@ main { grid-column: 3; display: grid; grid-template-rows: auto 1fr; min-width: 0
   <button id="reload" title="基板ファイルを読み直す（保存すると自動でも読み直す）">再読み込み</button>
 </header>
 <aside>
-  <div class="list-h"><span id="progress"></span><span class="grow"></span><button id="showDone">完了も表示</button></div>
+  <div class="list-h"><span id="progress"></span><span class="grow"></span><button id="showUnread">未読も表示</button><button id="showDone">完了も表示</button></div>
   <div id="list"></div>
   <div id="hsplit"></div>
   <div id="detail"><div id="detBody"><div class="empty">項目を選ぶと、ここに内容が出ます。基板の上を押すと、その場所について質問できます。</div></div>
@@ -223,6 +223,8 @@ const S = {
   items: {}, rev: -1, file: '',
   sel: null,
   showDone: store.get('kireview.showDone') === '1',
+  showUnread: store.get('kireview.showUnread') !== '0',
+  stick: new Set(),            // finished items listed for an unread reply stay until a filter button is pressed
   padText: store.get('kireview.padText') !== '0',
   view: { s: 0, tx: 0, ty: 0 },   // screen px = board mm * s + t
   layers: null,                // {preset, active: 'F' | 'B' | 'In1' ..., vis: [layer names]}
@@ -599,12 +601,18 @@ function renderList() {
   const fixedN = ids.filter(id => S.items[id].status === '修正済み').length;
   $('progress').innerHTML = '残り ' + left + ' / 全 ' + all + '<span class="fixed">　✔ 修正済み ' + fixedN + '</span>';
   $('showDone').classList.toggle('on', S.showDone);
+  $('showUnread').classList.toggle('on', S.showUnread);
   let html = '';
   for (const sev of [...SEVERITIES, '']) {
     const grp = ids.filter(id => sev ? S.items[id].severity === sev : !SEVERITIES.includes(S.items[id].severity));
-    // a finished item stays in the list while a reply is on its way or not read yet (mark it done and still see the answer)
-    const shown = grp.filter(id => S.showDone || !DONE.has(S.items[id].status) || id === S.sel ||
-      waitingReply(S.items[id]) || agentCount(S.items[id]) > (S.seen[id] || 0));
+    // 未読も表示: a finished item is listed while a reply is on its way or unread (mark it done and still see the
+    // answer); once listed it stays, read or not, until a filter button is pressed, so rows do not vanish on a click
+    const shown = grp.filter(id => {
+      const it = S.items[id];
+      if (S.showDone || !DONE.has(it.status) || id === S.sel) return true;
+      if (S.showUnread && (S.stick.has(id) || waitingReply(it) || agentCount(it) > (S.seen[id] || 0))) { S.stick.add(id); return true; }
+      return false;
+    });
     if (!shown.length) continue;
     html += '<div class="sev-h"><span>' + esc(sev || 'その他') + '</span><small>' + shown.length + ' 件</small></div>';
     for (const id of shown) {
@@ -614,7 +622,7 @@ function renderList() {
         '<span class="st s-' + esc(st) + '" title="' + esc(ST_NAME[st] || st) + '">' + (ST_MARK[st] || '○') + '</span>' +
         '<span class="id">' + esc(id) + '</span>' +
         '<span class="t"><span class="chips">' + sevChip(it.severity) + '<span class="chip owner">' + esc(it.owner || '未定') + '</span></span>' + esc(it.title) + '</span>' +
-        (isNew ? '<span class="new">返信</span>' : waitingReply(it) ? '<span class="new wait">返信待ち</span>' : '') + '</div>';
+        (isNew ? '<span class="new">未読</span>' : waitingReply(it) ? '<span class="new wait">返信待ち</span>' : '') + '</div>';
     }
   }
   list.innerHTML = html || '<div class="empty">' + (all ? '残りの項目はありません（「完了も表示」で全部）' : '項目はまだありません') + '</div>';
@@ -817,7 +825,8 @@ function initLayout() {
     const a = document.querySelector('aside').getBoundingClientRect();
     document.body.style.setProperty('--deth', Math.max(80, Math.min(a.height - 120, a.bottom - e.clientY)) + 'px');
   }, () => store.set('kireview.deth', document.body.style.getPropertyValue('--deth')));
-  $('showDone').addEventListener('click', () => { S.showDone = !S.showDone; store.set('kireview.showDone', S.showDone ? '1' : '0'); renderList(); });
+  $('showDone').addEventListener('click', () => { S.showDone = !S.showDone; store.set('kireview.showDone', S.showDone ? '1' : '0'); S.stick.clear(); renderList(); });
+  $('showUnread').addEventListener('click', () => { S.showUnread = !S.showUnread; store.set('kireview.showUnread', S.showUnread ? '1' : '0'); S.stick.clear(); renderList(); });
   $('lb').addEventListener('click', closeFigure);
   $('pageNew').addEventListener('click', () => location.reload());
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('lb').hidden) { e.stopImmediatePropagation(); closeFigure(); } }, true);

@@ -88,6 +88,7 @@ aside { grid-column: 1; display: flex; flex-direction: column; background: var(-
 .review-btns button[data-st="修正済み"] { flex-grow: 1.4; color: var(--st-done); border-color: var(--st-done); font-weight: 700; }
 .review-btns button.on[data-st="修正済み"] { background: var(--st-done); border-color: var(--st-done); color: #fff; }
 .review-btns button.on[data-st="このまま"] { background: var(--st-keep); border-color: var(--st-keep); }
+.review-btns button.on[data-st="修正を依頼"] { background: var(--st-work); border-color: var(--st-work); color: #fff; }
 .review-btns button.on[data-st="質問"] { background: var(--st-ask); border-color: var(--st-ask); }
 .msg { margin: 4px 0; padding: 5px 8px; border-radius: 6px; white-space: pre-wrap; max-width: 92%; }
 .msg.user { background: #f0efe9; margin-left: auto; }
@@ -171,9 +172,11 @@ const SEVERITIES = ['必須', '推奨', '任意', '情報'];
 const SEV_MEANING = { '必須': '直さないと動かない・壊れる・製造で不良', '推奨': '直した方がよい（性能・信頼性）',
   '任意': 'できれば直す', '情報': 'そのままでよい・変更の報告' };
 const OWNER_MEANING = { '人': 'KiCad で手で直す方が早い', 'エージェント': 'エージェントが直す', '未定': '担当はまだ決めていない' };
-// buttons the page offers; 自分で修正 / 修正を依頼 are older statuses that still display (a fix is asked for in a comment)
-const STATUS_BTNS = ['修正済み', '質問', 'このまま'];
-const BTN_LABEL = { '修正済み': '✔ 修正済み' };
+// buttons the page offers; 修正を依頼 is shown as 直して (the agent fixes it; a comment is optional). 自分で修正 is an older status
+// that still displays
+const STATUS_BTNS = ['修正済み', '直して', '質問', 'このまま'];
+const BTN_LABEL = { '修正済み': '✔ 修正済み', '修正を依頼': '⚑ 直して' };
+const BTN_STATUS = { '直して': '修正を依頼' };
 const DONE = new Set(['このまま', '修正済み']);
 const ST_MARK = { '未確認': '○', 'このまま': '－', '自分で修正': '✎', '修正を依頼': '⚑', '質問': '？', '修正済み': '✔' };
 const ST_COLOR = { '未確認': '#ffd400', '自分で修正': '#ff8c00', '修正を依頼': '#ff8c00', '質問': '#ff3cff', 'このまま': '#9aa0a6', '修正済み': '#2ecc40' };
@@ -651,8 +654,8 @@ function renderDetail() {
   h += '<h4>やりとり</h4>' + (th.length ? th.map(m => '<div class="msg ' + (m.who === 'agent' ? 'agent' : 'user') + '"><small>' +
     (m.who === 'agent' ? 'エージェント' : 'あなた') + '　' + esc(m.time || '') + '</small>' + esc(m.text) + '</div>').join('') : '<div class="none">まだありません</div>');
   $('detBody').innerHTML = h;
-  $('stBtns').innerHTML = STATUS_BTNS.map(b => '<button data-st="' + b + '" class="' + (st === b ? 'on' : '') +
-    '" title="もう一度押すと未確認に戻る。直してほしい時はコメントに書く">' + (BTN_LABEL[b] || b) + '</button>').join('');
+  $('stBtns').innerHTML = STATUS_BTNS.map(b => BTN_STATUS[b] || b).map(b => '<button data-st="' + b + '" class="' + (st === b ? 'on' : '') +
+    '" title="' + (b === '修正を依頼' ? 'エージェントに直してもらう（コメントは任意）。' : '') + 'もう一度押すと未確認に戻る">' + (BTN_LABEL[b] || b) + '</button>').join('');
   $('stBtns').querySelectorAll('button').forEach(b => b.addEventListener('click', () => setStatus(b)));
   $('detBody').querySelectorAll('.figs img').forEach(im => im.addEventListener('click', () => openFigure(im.src)));
 }
@@ -665,17 +668,17 @@ function neighbor(id, d) {
   return ids[i + d];
 }
 
-// A status press moves on to the next row. 質問 / 修正を依頼 with an empty comment box stay, so the request can be written
-// (sending it then moves on); with text in the box, the text goes with the status.
+// A status press moves on to the next row. 質問 with an empty comment box stays, so the question can be written (sending it
+// then moves on); with text in the box, the text goes with the status (also for 直して, where a comment is optional).
 async function setStatus(btn) {
   const id = S.sel, it = S.items[id], ta = $('comment'), text = ta.value.trim();
   const status = it.status === btn.dataset.st ? '未確認' : btn.dataset.st;
-  const needsText = status === '質問' || status === '修正を依頼';
+  const needsText = status === '質問', withText = (needsText || status === '修正を依頼') && !!text;
   const next = neighbor(id, 1);
   try {
-    const r = await api('/api/review/user', needsText && text ? { id, status, comment: text } : { id, status });
+    const r = await api('/api/review/user', withText ? { id, status, comment: text } : { id, status });
     S.items[id] = stripId(r);
-    if (needsText && text) { ta.value = ''; fitComment(); }
+    if (withText) { ta.value = ''; fitComment(); }
     if (status !== '未確認' && !(needsText && !text) && next) select(next, true);
     else renderAll();
     const b = document.querySelector('.review-btns button[data-st="' + btn.dataset.st + '"]');

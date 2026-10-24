@@ -38,6 +38,17 @@ CROP_MARGIN = 2.0             # mm around the board outline kept in the layer SV
 NEAR_PAD_MM = 1.5             # a click this close to a pad names the pad
 WATCH_S = 2.0
 CACHE_KEEP = 2                # current export and the one before
+PAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'index.html')
+
+
+def page_stamp():
+    """the page's file time, so an open page can tell that a newer page is there"""
+    try:
+        return int(os.path.getmtime(PAGE_FILE))
+    except OSError:
+        return 0
+
+
 FIGURE_TYPES = {'.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg'}
 # ask / ideal / background are the item's three sections (依頼 / 理想 / 経緯), signal the line's kind, current and
 # routing cautions for a routing request; text / action are the older pair
@@ -246,7 +257,7 @@ class Board:
 
     def version(self):
         with self.lock:
-            return {'version': self.meta['hash'], 'status': self.status, 'error': self.error}
+            return {'version': self.meta['hash'], 'status': self.status, 'error': self.error, 'page': page_stamp()}
 
     def info(self):
         with self.lock:

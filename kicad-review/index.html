@@ -146,7 +146,7 @@ main { grid-column: 3; display: grid; grid-template-rows: auto 1fr; min-width: 0
     <div id="presets"><button data-p="F">表</button><button data-p="B">裏</button><button data-p="In">内層</button><button data-p="all">全部</button></div>
     <div id="layerBoxes"></div>
     <label id="padTextBox" title="表示している面のパッドに、ピンの番号とネットの名前を出す（拡大すると出る）"><input type="checkbox" id="padText">ピン・ネット</label>
-    <button id="fit">全体</button>
+    <button id="fit" title="基板全体を表示。もう一度押すと元の拡大に戻る">全体</button>
     <span id="coord"></span>
   </div>
   <div id="view">
@@ -313,6 +313,15 @@ function fitBoard() {
   S.view = { s, tx: W / 2 - (b[0] + b[2]) / 2 * s, ty: H / 2 - (b[1] + b[3]) / 2 * s };
   redraw();
 }
+
+// 全体 toggles: the first press shows the whole board and keeps the view it left, the second press goes back to that view
+let viewBeforeWhole = null;
+function toggleWhole() {
+  if (viewBeforeWhole) { S.view = viewBeforeWhole; viewBeforeWhole = null; redraw(); }
+  else { viewBeforeWhole = Object.assign({}, S.view); fitBoard(); }
+  $('fit').classList.toggle('on', !!viewBeforeWhole);
+}
+function clearWhole() { viewBeforeWhole = null; $('fit').classList.remove('on'); }
 
 function focusOn(x, y, mm) {
   const W = view.clientWidth, H = view.clientHeight;
@@ -678,6 +687,7 @@ function select(id, move) {
   const it = S.items[id];
   markSeen(id);
   if (move) {
+    clearWhole();
     const side = (it.sides || ['F'])[0];
     if (side === 'F' || side === 'B') setPreset(side);
     else setPreset('In', side);
@@ -768,7 +778,7 @@ function initLayout() {
   $('send').addEventListener('click', sendComment);
   $('comment').addEventListener('input', fitComment);
   $('comment').addEventListener('keydown', e => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); sendComment(); } });
-  $('fit').addEventListener('click', fitBoard);
+  $('fit').addEventListener('click', toggleWhole);
   $('reload').addEventListener('click', async e => {
     try { await api('/api/reload', {}); showBoardStatus('reloading'); notice(e.currentTarget, '読み直します'); } catch (err) { notice($('reload'), 'エラー: ' + err.message); }
   });

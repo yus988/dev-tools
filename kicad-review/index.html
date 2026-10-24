@@ -76,6 +76,10 @@ aside { grid-column: 1; display: flex; flex-direction: column; background: var(-
   font-weight: 600; font-size: 14px; margin: 6px 0 4px; }
 #detail .req::before { content: '依頼'; display: block; font-size: 11px; color: var(--sev-推奨); margin-bottom: 1px; }
 #detail .bg { color: #555; }
+#detail .figs img { display: block; max-width: 100%; margin: 4px 0; border-radius: 4px; cursor: zoom-in; background: #111; }
+#lb { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.88); display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+#lb[hidden] { display: none; }
+#lb img { max-width: 96vw; max-height: 94vh; }
 #detail .none { color: var(--muted); }
 .review-btns { display: flex; gap: 4px; margin: 0 0 4px; flex-wrap: nowrap; }
 .review-btns button { flex: 1 1 0; min-width: 0; padding: 1px 0; font-size: 12px; }
@@ -141,6 +145,7 @@ main { grid-column: 3; display: grid; grid-template-rows: auto 1fr; min-width: 0
   </div>
 </aside>
 <div id="split"></div>
+<div id="lb" hidden></div>
 <main>
   <div id="tools">
     <div id="presets"><button data-p="F">表</button><button data-p="B">裏</button><button data-p="In">内層</button><button data-p="all">全部</button></div>
@@ -626,6 +631,7 @@ function renderDetail() {
   const where = (it.sides || []).map(sideName).join('・') + '　x ' + Number(it.x).toFixed(2) + '  y ' + Number(it.y).toFixed(2) + ' mm';
   let h = '<div class="t">' + esc(S.sel) + '　' + esc(it.title) + '</div>' +
     (it.ask ? '<div class="req">' + esc(it.ask) + '</div>' : '') +
+    (it.figures && it.figures.length ? '<div class="figs">' + it.figures.map(n => '<img src="/figures/' + encodeURIComponent(n) + '" alt="' + esc(n) + '" title="押すと全画面">').join('') + '</div>' : '') +
     '<div class="row"><span class="k">重要度</span>' + sevChip(it.severity) + '<span class="meaning">' + esc(SEV_MEANING[it.severity] || '') + '</span></div>' +
     '<div class="row"><span class="k">担当</span><span class="chip owner">' + esc(it.owner || '未定') + '</span><span class="meaning">' + esc(OWNER_MEANING[it.owner] || '') + '</span></div>' +
     '<div class="row"><span class="k">場所</span>' + esc(where) + '</div>' +
@@ -645,6 +651,7 @@ function renderDetail() {
   $('stBtns').innerHTML = STATUS_BTNS.map(b => '<button data-st="' + b + '" class="' + (st === b ? 'on' : '') +
     '" title="もう一度押すと未確認に戻る。直してほしい時はコメントに書く">' + (BTN_LABEL[b] || b) + '</button>').join('');
   $('stBtns').querySelectorAll('button').forEach(b => b.addEventListener('click', () => setStatus(b)));
+  $('detBody').querySelectorAll('.figs img').forEach(im => im.addEventListener('click', () => openFigure(im.src)));
 }
 
 async function setStatus(btn) {
@@ -658,6 +665,10 @@ async function setStatus(btn) {
     notice(b || btn, '送信しました');
   } catch (e) { notice(btn, 'エラー: ' + e.message); }
 }
+
+// a figure full screen; a click anywhere or Esc closes it
+function openFigure(src) { const lb = $('lb'); lb.innerHTML = '<img src="' + esc(src) + '">'; lb.hidden = false; }
+function closeFigure() { const lb = $('lb'); lb.hidden = true; lb.innerHTML = ''; }
 
 function fitComment() {               // the comment box grows with its text, up to its max-height
   const ta = $('comment');
@@ -774,6 +785,8 @@ function initLayout() {
     document.body.style.setProperty('--deth', Math.max(80, Math.min(a.height - 120, a.bottom - e.clientY)) + 'px');
   }, () => store.set('kireview.deth', document.body.style.getPropertyValue('--deth')));
   $('showDone').addEventListener('click', () => { S.showDone = !S.showDone; store.set('kireview.showDone', S.showDone ? '1' : '0'); renderList(); });
+  $('lb').addEventListener('click', closeFigure);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('lb').hidden) { e.stopImmediatePropagation(); closeFigure(); } }, true);
   $('padText').checked = S.padText;
   $('padText').addEventListener('change', e => { S.padText = e.target.checked; store.set('kireview.padText', S.padText ? '1' : '0'); drawOverlay(); });
   $('send').addEventListener('click', sendComment);

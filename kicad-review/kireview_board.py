@@ -22,7 +22,7 @@ import stat
 import subprocess
 import threading
 import time
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, unquote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DUMP = os.path.join(HERE, 'kireview_dump.py')
@@ -38,9 +38,10 @@ CROP_MARGIN = 2.0             # mm around the board outline kept in the layer SV
 NEAR_PAD_MM = 1.5             # a click this close to a pad names the pad
 WATCH_S = 2.0
 CACHE_KEEP = 2                # current export and the one before
+FIGURE_TYPES = {'.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg'}
 # ask / ideal / background are the item's three sections (依頼 / 理想 / 経緯), signal the line's kind, current and
 # routing cautions for a routing request; text / action are the older pair
-ITEM_FIELDS = ('title', 'severity', 'owner', 'sides', 'x', 'y', 'r', 'w', 'h', 'refs', 'pins', 'ask', 'signal', 'ideal', 'background',
+ITEM_FIELDS = ('title', 'severity', 'owner', 'sides', 'x', 'y', 'r', 'w', 'h', 'refs', 'pins', 'ask', 'signal', 'ideal', 'background', 'figures',
                'text', 'action', 'status', 'thread', 'near')
 
 
@@ -422,6 +423,14 @@ class Api:
             return 200, self.review.get(), 'application/json', False
         if path == '/api/review/pending':
             return 200, self.review.pending(), 'application/json', False
+        if path.startswith('/figures/'):            # explanation figures: <data>/figures/<board stem>/<name>
+            name = unquote(path[len('/figures/'):])
+            ctype = FIGURE_TYPES.get(os.path.splitext(name)[1].lower())
+            p = os.path.join(self.board.data, 'figures', self.board.stem, name)
+            if not ctype or not re.match(r'^[\w.-]+$', name) or not os.path.isfile(p):
+                return 404, {'error': 'not found'}, 'application/json', False
+            with open(p, 'rb') as f:
+                return 200, f.read(), ctype, False
         if path.startswith('/svg/'):
             parts = path.split('/')
             p = self.board.svg_path(parts[2], parts[3]) if len(parts) == 4 else None

@@ -267,14 +267,22 @@ function layerOrder() {
   return [...order, 'Edge.Cuts'];
 }
 
+// an item on several copper layers: those layers only, all see-through so each shows through the others
+function setMulti(keys, active) {
+  S.layers = { preset: 'multi', active, vis: [...keys.map(cuLayer), active === 'B' ? 'B.Silkscreen' : 'F.Silkscreen', 'Edge.Cuts'] };
+  saveLayers();
+  applyLayers();
+}
+
 function applyLayers() {
   const order = layerOrder(), vis = new Set(S.layers.vis), a = S.layers.active;
-  const inner = !(a === 'F' || a === 'B');
+  const inner = !(a === 'F' || a === 'B'), multi = S.layers.preset === 'multi';
   for (const [name, img] of Object.entries(imgs)) {
     img.style.zIndex = order.indexOf(name) + 1;
     img.style.display = vis.has(name) ? '' : 'none';
     let op = 1;
     if (inner && name === 'F.Silkscreen') op = 0.35;           // orientation only
+    else if (multi && name.endsWith('.Cu')) op = 0.55;          // the active one too
     else if (name.endsWith('.Cu') && name !== cuLayer(a)) op = 0.6;  // copper of the other sides, under the active one
     img.style.opacity = op;
   }
@@ -290,7 +298,7 @@ function buildLayerBoxes() {
     const vis = new Set(S.layers.vis);
     c.checked ? vis.add(c.value) : vis.delete(c.value);
     S.layers.vis = [...vis];
-    S.layers.preset = 'custom';
+    if (S.layers.preset !== 'multi') S.layers.preset = 'custom';
     const k = c.value.endsWith('.Cu') ? copperKeys()[S.board.copper.indexOf(c.value)] : null;
     if (c.checked && k) S.layers.active = k;        // a copper layer just turned on comes to the top
     saveLayers();
@@ -746,7 +754,9 @@ function select(id, move) {
       if (f && !bk) side = 'F';
       else if (bk && !f) side = 'B';
     }
-    if (side === 'F' || side === 'B') setPreset(side);
+    const cuSides = (it.sides || []).filter(s => copperKeys().includes(s));
+    if (cuSides.length > 1) setMulti(cuSides, cuSides.includes(side) ? side : cuSides[0]);
+    else if (side === 'F' || side === 'B') setPreset(side);
     else setPreset('In', side);
     if (pads.length) {                 // pins given: frame the pins, closer than an area
       const xs = pads.flatMap(([, p]) => padPoly(p).map(q => q[0])), ys = pads.flatMap(([, p]) => padPoly(p).map(q => q[1]));

@@ -10,3 +10,5 @@ boards/
 procedures/
 marks.jsonl
 fit-lab/sample/*/campaign.json.bak
+*.talk.json
+*.talk.json.tmp

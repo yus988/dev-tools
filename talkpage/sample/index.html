@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>talkpage サンプル</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
+<link rel="stylesheet" href="/_talk/talkpage.css">
+<script src="/_talk/talkpage.js" defer></script>
+<style>
+:root { --bg:#fbfbfa; --fg:#1d1d1f; --muted:#666; --line:#e2e2de; --card:#fff; --accent:#0a5fb4; --code:#f2f2ef; }
+@media (prefers-color-scheme: dark) { :root { --bg:#1b1b1d; --fg:#e8e8e6; --muted:#a3a3a0; --line:#34343a; --card:#232327; --accent:#6cb6ff; --code:#2c2c31; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.7 system-ui,"Yu Gothic UI",sans-serif; }
+main { max-width:860px; margin:0 auto; padding:24px 16px; }
+h2 { font-size:18px; margin:28px 0 8px; }
+.muted { color:var(--muted); font-size:13px; }
+code { font-family:Consolas,monospace; background:var(--code); border-radius:4px; padding:1px 4px; font-size:13px; }
+.item { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 14px; margin:8px 0; }
+.item b { color:var(--accent); margin-right:8px; }
+.cmd { display:flex; align-items:center; gap:8px; background:var(--code); border-radius:4px; padding:4px 8px 4px 12px; margin:6px 0; }
+.cmd code { flex:1; background:none; padding:0; }
+.talk-offline { border:1px solid var(--line); border-radius:8px; padding:8px 14px; background:var(--card); }
+</style>
+</head>
+<body>
+<main>
+<h1>talkpage サンプル</h1>
+<p class="talk-offline">このページはファイルとして開かれています。チェックとコメントをエージェントに届けるには、<code>python talkpage.py serve sample</code> を起動して <code>http://127.0.0.1:8190/</code> から開いてください。</p>
+<p class="muted">状態（OK / NG）とコメントは、ページの横の <code>index.talk.json</code> に保存され、待っているエージェントに届きます。右下に、エージェントが受け付けているかが出ます。</p>
+
+<div class="item" data-talk="all" data-talk-states="" data-talk-title="ページ全体へのコメント"><b>全体</b>このページ全体へのコメント（状態のボタンは無し）</div>
+
+<h2>HTML の属性で宣言した項目</h2>
+<div data-talk-states="OK,NG,飛ばし">
+  <div class="item" data-talk="S1"><b>S1</b>画面の上の帯を見る。警告が出ていないこと。</div>
+  <div class="item" data-talk="S2"><b>S2</b>次のコマンドを実行し、終了コードが 0 であること。
+    <div class="cmd" data-copy><code>python --version</code></div>
+  </div>
+  <div class="item" data-talk="S3" data-talk-wake="NG"><b>S3</b>NG のときだけエージェントを起こす項目（OK は保存だけ）。</div>
+</div>
+
+<h2>JSON で宣言した項目</h2>
+<div data-talk-list>
+<script type="application/json">
+[
+  {"id": "J1", "title": "一覧を開く", "html": "項目が <b>3 件</b> 並ぶこと。"},
+  {"id": "J2", "title": "質問だけの項目", "text": "状態のボタンを「了承 / 質問」にした例。", "states": "了承,質問"}
+]
+</script>
+</div>
+</main>
+</body>
+</html>

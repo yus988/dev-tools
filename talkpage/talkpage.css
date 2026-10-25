@@ -1,0 +1,96 @@
+/* talkpage client styles. Colours follow the page's --fg / --muted / --line / --card / --accent when it has them. */
+:root {
+  --talk-fg: var(--fg, #1d1d1f); --talk-muted: var(--muted, #666); --talk-line: var(--line, #d9d9d4);
+  --talk-bg: var(--card, #fff); --talk-accent: var(--accent, #0a5fb4);
+  --talk-ok: #1a7f37; --talk-ng: #cf222e; --talk-ask: #9a6700; --talk-skip: #6e7781;
+  --talk-user-bg: #f3f3f0; --talk-agent-bg: #eaf2fd;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --talk-fg: var(--fg, #e8e8e6); --talk-muted: var(--muted, #a3a3a0); --talk-line: var(--line, #3a3a40);
+    --talk-bg: var(--card, #232327); --talk-accent: var(--accent, #6cb6ff);
+    --talk-ok: #3fb950; --talk-ng: #f85149; --talk-ask: #d29922; --talk-skip: #8b949e;
+    --talk-user-bg: #2b2b30; --talk-agent-bg: #1d2b3e;
+  }
+}
+
+/* shown only when the page is opened without the server (as a file) */
+.talk-offline { display: none !important; }
+body { padding-bottom: 64px; }
+
+/* an item: the bar and the thread span a grid item's full width */
+[data-talk] > .talk-bar, [data-talk] > .talk-thread { grid-column: 1 / -1; }
+[data-talk][data-talk-tone="ok"] { box-shadow: inset 4px 0 0 var(--talk-ok); }
+[data-talk][data-talk-tone="ng"] { box-shadow: inset 4px 0 0 var(--talk-ng); }
+[data-talk][data-talk-tone="ask"] { box-shadow: inset 4px 0 0 var(--talk-ask); }
+[data-talk][data-talk-tone="skip"] { box-shadow: inset 4px 0 0 var(--talk-skip); }
+
+.talk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: 13px; line-height: 1.5; }
+.talk-bar button, .talk-form button, .talk-dock button, .talk-copy-btn {
+  font: inherit; font-size: 13px; color: var(--talk-fg); background: var(--talk-bg);
+  border: 1px solid var(--talk-line); border-radius: 14px; padding: 1px 12px; cursor: pointer;
+}
+.talk-bar button:hover, .talk-form button:hover, .talk-dock button:hover, .talk-copy-btn:hover { border-color: var(--talk-muted); }
+.talk-st { min-width: 3.4em; }
+.talk-st[aria-pressed="true"] { color: #fff; font-weight: 600; }
+.talk-st[aria-pressed="true"][data-tone="ok"] { background: var(--talk-ok); border-color: var(--talk-ok); }
+.talk-st[aria-pressed="true"][data-tone="ng"] { background: var(--talk-ng); border-color: var(--talk-ng); }
+.talk-st[aria-pressed="true"][data-tone="ask"] { background: var(--talk-ask); border-color: var(--talk-ask); }
+.talk-st[aria-pressed="true"][data-tone="skip"] { background: var(--talk-skip); border-color: var(--talk-skip); }
+.talk-cbtn { margin-left: 6px; }
+.talk-cbtn[aria-expanded="true"] { border-color: var(--talk-accent); color: var(--talk-accent); }
+.talk-count { display: inline-block; min-width: 1.4em; text-align: left; }
+.talk-mark { display: inline-block; min-width: 8em; font-size: 12px; color: var(--talk-muted); }
+.talk-mark[data-m="new"] { color: var(--talk-accent); font-weight: 600; }
+.talk-mark[data-m="wait"] { color: var(--talk-ask); }
+.talk-mark[data-m="err"] { color: var(--talk-ng); font-weight: 600; }
+
+.talk-thread { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--talk-line); font-size: 14px; }
+.talk-thread[hidden] { display: none; }
+.talk-msg { margin: 4px 0; padding: 4px 10px 6px; border-radius: 6px; background: var(--talk-user-bg); }
+.talk-msg.talk-agent { background: var(--talk-agent-bg); }
+.talk-who { display: block; font-size: 11px; color: var(--talk-muted); }
+.talk-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.talk-text code { font-size: 12px; }
+.talk-ev { margin: 2px 0; font-size: 11px; color: var(--talk-muted); }
+.talk-form { display: flex; gap: 6px; align-items: flex-end; margin: 6px 0 2px; }
+.talk-form textarea {
+  flex: 1; min-width: 0; font: inherit; font-size: 13px; line-height: 1.5; resize: vertical;
+  color: var(--talk-fg); background: var(--talk-bg); border: 1px solid var(--talk-line); border-radius: 6px; padding: 4px 8px;
+}
+.talk-send { flex: none; }
+.talk-send:disabled { opacity: .5; cursor: default; }
+
+/* the dock: presence of the agent, progress, jumps */
+.talk-dock {
+  position: fixed; right: 12px; bottom: 12px; z-index: 1000; display: flex; align-items: center; gap: 10px;
+  max-width: calc(100vw - 24px); padding: 4px 12px; font-size: 12px; line-height: 1.6; color: var(--talk-fg);
+  background: var(--talk-bg); border: 1px solid var(--talk-line); border-radius: 18px; box-shadow: 0 2px 10px rgba(0, 0, 0, .15);
+}
+.talk-dock button { font-size: 12px; padding: 0 10px; }
+.talk-dock button[hidden] { display: none; }
+.talk-progress { color: var(--talk-muted); white-space: nowrap; }
+.talk-presence { min-width: 12em; white-space: nowrap; cursor: help; }
+.talk-presence::before { content: "●"; margin-right: 4px; color: var(--talk-skip); }
+.talk-presence[data-p="listening"]::before { color: var(--talk-ok); }
+.talk-presence[data-p="working"]::before { color: var(--talk-ask); }
+.talk-presence[data-p="down"]::before { content: "×"; color: var(--talk-ng); }
+@media (max-width: 640px) {
+  .talk-dock { left: 8px; right: 8px; bottom: 8px; flex-wrap: wrap; justify-content: flex-end; gap: 6px 10px; }
+  .talk-presence { min-width: 0; }
+}
+.talk-flash { animation: talk-flash 1.4s ease-out; }
+@keyframes talk-flash { from { outline: 3px solid var(--talk-accent); outline-offset: 2px; } to { outline: 3px solid transparent; outline-offset: 2px; } }
+
+/* copy buttons; the note appears just above the button and moves nothing */
+.talk-copy { position: relative; }
+.talk-copy-btn { font-size: 12px; padding: 0 10px; border-radius: 4px; }
+.talk-copied { position: absolute; right: 6px; top: -1.5em; font-size: 12px; color: var(--talk-accent); pointer-events: none; white-space: nowrap; }
+
+/* items declared in JSON */
+.talk-card { background: var(--talk-bg); border: 1px solid var(--talk-line); border-radius: 8px; padding: 8px 14px; margin: 8px 0; }
+.talk-card-head { display: flex; gap: 10px; align-items: baseline; }
+.talk-card-id { font-weight: 700; color: var(--talk-accent); }
+.talk-card-title { font-weight: 600; }
+.talk-card-body { margin-top: 2px; }
+.talk-error { color: var(--talk-ng); }

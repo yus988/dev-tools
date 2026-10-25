@@ -9,6 +9,7 @@ README.
 | [fit-lab](fit-lab/README.md) | Local web app to log CAD design values vs. measured values of printed parts per lot and clearance variant, with annotated pictures and a knowledge base over lots (voice entry included). |
 | [ad-bench](ad-bench/README.md) | Digilent Analog Discovery bench helper over the WaveForms SDK: monitor / record / impedance from the command line, a browser scope with an HTTP API (`adscope`), guided probing on a board picture, and voice prompts for the person holding the probes (`guide.py`). |
 | [kicad-review](kicad-review/README.md) | Local page to review a KiCad 10 PCB with a coding agent: review items marked on the board in KiCad colours (per-layer SVG via kicad-cli), severity / owner / status per item, a comment thread with the agent, and questions asked by clicking the board. |
+| [talkpage](talkpage/README.md) | Base for local pages the user and a coding agent talk on: items declared in HTML (`data-talk`) or JSON get status buttons (OK / NG …) and a comment thread kept in a JSON beside the page; a wait command run in the background wakes the agent when the user acts, and its replies appear in place. |
 
 ## Common requirements
 

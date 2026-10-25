@@ -430,6 +430,10 @@ function padLabels(vis) {
   return out.join('');
 }
 
+const BIG_AREA = 0.1;                    // share of the board above which a fixed item is drawn without the tint
+function itemArea(it) { return it.w != null && it.h != null ? it.w * it.h : Math.PI * (it.r || 1) ** 2; }
+function boardArea() { const b = S.board.bbox || S.board.crop; return (b[2] - b[0]) * (b[3] - b[1]); }
+
 function drawOverlay() {
   const ov = $('ov');
   if (!S.board) return;
@@ -444,7 +448,8 @@ function drawOverlay() {
     const w = sel ? 4 : done && !fixed ? 1.2 : 2.2;
     const op = S.sel && !sel ? 0.4 : 1;
     const dash = onShown ? '' : ' stroke-dasharray="5 4"';
-    const fill = fixed ? ' fill="' + col + '" fill-opacity="0.22"' : ' fill="none"';
+    // tint a fixed item, but not one that covers a large part of the board (a whole-board item would cover everything)
+    const fill = fixed && itemArea(it) < BIG_AREA * boardArea() ? ' fill="' + col + '" fill-opacity="0.22"' : ' fill="none"';
     let shape, lx, ly;
     if (g.box) {
       const r = 'x="' + (g.cx - g.hw) + '" y="' + (g.cy - g.hh) + '" width="' + 2 * g.hw + '" height="' + 2 * g.hh + '"';

@@ -1,16 +1,10 @@
-"""Board review core: export a KiCad PCB for the review page, the review items and the HTTP API.
+"""Board side of kicad-review: export a KiCad PCB for the review page and find what is at a point.
 
-The board is copied to <data>/cache/<stem>/<hash>/ (zone fills stripped) and kicad-cli exports one SVG per layer
-from the copy; kireview_dump.py (run with KiCad's python) lists footprints and pads. The project folder is only read.
-When the board file changes (saved in KiCad) the export runs again in the background (Board.watch).
-
-Importable without a server: Board (export + watch), Review (items in <data>/reviews/<stem>.json) and Api, which
-answers the routes below and returns None for any other path, so another server can mount it.
-
-API: GET /api/board, GET /api/board/version, GET /svg/<hash>/<file>, POST /api/reload,
-review: GET /api/review, GET /api/review/pending, POST /api/review/item {id, title, ...},
-DELETE /api/review/item?id=, POST /api/review/agent {id, reply?, status?},
-POST /api/review/user {id, status?, comment?}, POST /api/review/new {x, y, side, comment}.
+The board is copied to <data>/cache/board/<stem>/<hash>/ and kicad-cli exports one SVG per layer from the copy: copper
+without zone fills (tracks, pads and vias stay readable), and the copper with the fills a second time, drawn faintly
+under it in the page. kireview_dump.py (run with KiCad's python) lists footprints and pads. The project folder is
+only read. When the board file changes (saved in KiCad) the export runs again in the background (Board.watch).
+The review items live in kireview_store (reviews/<stem>.json); kireview.py serves the routes.
 """
 import hashlib
 import json
@@ -22,39 +16,16 @@ import stat
 import subprocess
 import threading
 import time
-from urllib.parse import parse_qs, unquote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DUMP = os.path.join(HERE, 'kireview_dump.py')
 KICAD_BIN = 'C:/Program Files/KiCad/10.0/bin'
-SEVERITIES = ('必須', '推奨', '任意', '情報')
-OWNERS = ('人', 'エージェント', '未定')
-# the page offers 修正済み / 直して (修正を依頼) / OK (このまま); 質問 marks a question asked at a point of the board (new) and
-# older reviews; 自分で修正 stays readable
-STATUSES = ('未確認', 'このまま', '自分で修正', '修正を依頼', '質問', '修正済み')
-ASKING = ('修正を依頼', '質問')           # a user status that waits for the agent
-SIDE_KEY = re.compile(r'^(F|B|In\d+)$')
-EXTRA_LAYERS = ('F.Silkscreen', 'B.Silkscreen', 'Edge.Cuts')
+EXTRA_LAYERS = ('F.Silkscreen', 'B.Silkscreen', 'Edge.Cuts', 'F.Courtyard', 'B.Courtyard')
 CROP_MARGIN = 2.0             # mm around the board outline kept in the layer SVGs
 NEAR_PAD_MM = 1.5             # a click this close to a pad names the pad
 WATCH_S = 2.0
 CACHE_KEEP = 2                # current export and the one before
-PAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'index.html')
-
-
-def page_stamp():
-    """the page's file time, so an open page can tell that a newer page is there"""
-    try:
-        return int(os.path.getmtime(PAGE_FILE))
-    except OSError:
-        return 0
-
-
-FIGURE_TYPES = {'.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg'}
-# ask / ideal / background are the item's three sections (依頼 / 理想 / 経緯), signal the line's kind, current and
-# routing cautions for a routing request; text / action are the older pair
-ITEM_FIELDS = ('title', 'severity', 'owner', 'sides', 'x', 'y', 'r', 'w', 'h', 'refs', 'pins', 'spots', 'ask', 'signal', 'ideal', 'background', 'figures',
-               'text', 'action', 'status', 'thread', 'near')
+EXPORT_V = 2                  # cache format: an export of another version is made again
 
 
 # ---------------------------------------------------------------- export
@@ -117,23 +88,30 @@ def crop_svg(path, box):
 
 
 def export(board, data, kicad_bin):
-    """Copy, dump and plot the board into <data>/cache/<stem>/<hash>/ unless that export exists. Returns its meta."""
+    """Copy, dump and plot the board into <data>/cache/board/<stem>/<hash>/ unless that export exists. Returns its
+    meta: crop box, layer SVG files (zone fills stripped) and fills (copper layers with their zone fills)."""
     stem = os.path.splitext(os.path.basename(board))[0]
     with open(board, 'rb') as f:
         raw = f.read()
     h = hashlib.sha1(raw).hexdigest()[:12]
-    base = os.path.join(data, 'cache', stem)
+    base = os.path.join(data, 'cache', 'board', stem)
     d = os.path.join(base, h)
     meta_path = os.path.join(d, 'meta.json')
     if os.path.isfile(meta_path):
         with open(meta_path, encoding='utf-8') as f:
-            return json.load(f)
+            meta = json.load(f)
+        if meta.get('v') == EXPORT_V:
+            return meta
     if os.path.isdir(d):
         _rmtree(d)
     os.makedirs(os.path.join(d, 'svg'))
+    os.makedirs(os.path.join(d, 'fill'))
     copy = os.path.join(d, stem + '.kicad_pcb')
     with open(copy, 'w', encoding='utf-8', newline='') as f:
         f.write(strip_fills(raw.decode('utf-8')))
+    filled = os.path.join(d, 'fill', stem + '.kicad_pcb')          # as saved: zones with their fills
+    with open(filled, 'wb') as f:
+        f.write(raw)
     pro = os.path.splitext(board)[0] + '.kicad_pro'
     if os.path.isfile(pro):
         shutil.copy2(pro, os.path.join(d, stem + '.kicad_pro'))
@@ -143,18 +121,23 @@ def export(board, data, kicad_bin):
         dump = json.load(f)
     layers = dump['layers'] + list(EXTRA_LAYERS)
     cli = os.path.join(kicad_bin, 'kicad-cli.exe' if os.name == 'nt' else 'kicad-cli')
-    run([cli, 'pcb', 'export', 'svg', '--mode-multi', '-l', ','.join(layers), '-o', os.path.join(d, 'svg'),
-         '--exclude-drawing-sheet', '--page-size-mode', '1', '--drill-shape-opt', '2', copy], d)
+    opts = ['--exclude-drawing-sheet', '--page-size-mode', '1', '--drill-shape-opt', '2']
+    run([cli, 'pcb', 'export', 'svg', '--mode-multi', '-l', ','.join(layers), '-o', os.path.join(d, 'svg')] + opts + [copy], d)
+    run([cli, 'pcb', 'export', 'svg', '--mode-multi', '-l', ','.join(dump['layers']), '-o', os.path.join(d, 'fill')]
+        + opts + [filled], d)
     bb = dump['bbox'] or _parts_box(dump)
     crop = [bb[0] - CROP_MARGIN, bb[1] - CROP_MARGIN, bb[2] + CROP_MARGIN, bb[3] + CROP_MARGIN]
-    files = {}
+    files, fills = {}, {}
     for name in layers:
         fn = '%s-%s.svg' % (stem, name.replace('.', '_'))
-        p = os.path.join(d, 'svg', fn)
-        if os.path.isfile(p):
-            crop_svg(p, crop)
-            files[name] = fn
-    meta = {'hash': h, 'board': board.replace('\\', '/'), 'time': time.time(), 'crop': crop, 'files': files}
+        for sub, out in (('svg', files), ('fill', fills)):
+            fp = os.path.join(d, sub, fn)
+            if os.path.isfile(fp):
+                crop_svg(fp, crop)
+                out[name] = fn
+    os.remove(filled)
+    meta = {'v': EXPORT_V, 'hash': h, 'board': board.replace('\\', '/'), 'time': time.time(), 'crop': crop,
+            'files': files, 'fills': fills}
     with open(meta_path, 'w', encoding='utf-8') as f:
         json.dump(meta, f, ensure_ascii=False)
     # keep this export and the newest other one (the cache holds only files written here, no links)
@@ -218,6 +201,7 @@ class Board:
         self.meta, self.dump = None, None
         self.status, self.error = 'ok', ''
         self.stamp = None
+        self.stopped = threading.Event()
 
     def _stamp(self):
         st = os.stat(self.path)
@@ -233,12 +217,14 @@ class Board:
             self.status, self.error = 'ok', ''
 
     def dir(self, h):
-        return os.path.join(self.data, 'cache', self.stem, h)
+        return os.path.join(self.data, 'cache', 'board', self.stem, h)
 
     def watch(self):
-        while True:
+        while not self.stopped.is_set():
             forced = self.wake.wait(WATCH_S)
             self.wake.clear()
+            if self.stopped.is_set():
+                return
             try:
                 if not forced and self._stamp() == self.stamp:
                     continue
@@ -256,9 +242,14 @@ class Board:
                     except OSError:
                         pass
 
+    def stop(self):
+        """Another board was opened: end the watch thread."""
+        self.stopped.set()
+        self.wake.set()
+
     def version(self):
         with self.lock:
-            return {'version': self.meta['hash'], 'status': self.status, 'error': self.error, 'page': page_stamp()}
+            return {'version': self.meta['hash'], 'status': self.status, 'error': self.error}
 
     def info(self):
         with self.lock:
@@ -266,212 +257,14 @@ class Board:
             return {'board': self.path.replace('\\', '/'), 'stem': self.stem, 'version': m['hash'],
                     'status': self.status, 'error': self.error, 'bbox': d['bbox'], 'crop': m['crop'],
                     'copper': d['layers'],
-                    'layers': [{'name': n, 'url': '/svg/%s/%s' % (m['hash'], fn)} for n, fn in m['files'].items()],
+                    'layers': [{'name': n, 'url': '/board/svg/%s/svg/%s' % (m['hash'], fn),
+                                'fill': '/board/svg/%s/fill/%s' % (m['hash'], m['fills'][n]) if n in m.get('fills', {}) else None}
+                               for n, fn in m['files'].items()],
                     'dump': d}
 
-    def svg_path(self, h, name):
-        if not re.match(r'^[0-9a-f]+$', h) or '/' in name or '\\' in name or not name.endswith('.svg'):
+    def svg_path(self, h, sub, name):
+        if (not re.match(r'^[0-9a-f]+$', h) or sub not in ('svg', 'fill') or '/' in name or '\\' in name
+                or not name.endswith('.svg')):
             return None
-        p = os.path.join(self.dir(h), 'svg', name)
+        p = os.path.join(self.dir(h), sub, name)
         return p if os.path.isfile(p) else None
-
-
-# ---------------------------------------------------------------- review
-def _id_key(i):
-    m = re.match(r'^(.*?)(\d+)$', i)
-    return (m.group(1), int(m.group(2)), i) if m else (i, 0, i)
-
-
-class Review:
-    """Review items of one board. Besides the documented fields an item keeps status_rev (review revision of the
-    user's last status change) and agent_rev (of the agent's last reply), so a request made after the last reply is
-    pending even without a comment."""
-
-    def __init__(self, path, board):
-        self.path = path
-        self.lock = threading.Lock()
-        self.data = {'board': board, 'items': {}}
-        if os.path.isfile(path):
-            with open(path, encoding='utf-8') as f:
-                self.data = json.load(f)
-        self.data.setdefault('items', {})
-        self.data['board'] = board
-        self.rev = int(self.data.get('rev', 0))
-
-    def _save(self):
-        self.rev += 1
-        self.data['rev'] = self.rev
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        tmp = self.path + '.tmp'
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(self.data, f, ensure_ascii=False, indent=1)
-        os.replace(tmp, self.path)
-
-    def get(self):
-        with self.lock:
-            return {'board': self.data['board'], 'file': self.path.replace('\\', '/'), 'rev': self.rev,
-                    'items': self.data['items']}
-
-    @staticmethod
-    def _pending(it):
-        th = it.get('thread') or []
-        if th and th[-1].get('who') == 'user':
-            return True
-        return it.get('status') in ASKING and it.get('status_rev', 0) > it.get('agent_rev', 0)
-
-    def pending(self):
-        with self.lock:
-            items = [dict(it, id=k) for k, it in sorted(self.data['items'].items(), key=lambda kv: _id_key(kv[0]))
-                     if self._pending(it)]
-            return {'board': self.data['board'], 'rev': self.rev, 'items': items}
-
-    def _item(self, iid):
-        it = self.data['items'].get(iid)
-        if it is None:
-            raise ValueError('unknown item id: %s' % iid)
-        return it
-
-    @staticmethod
-    def _check(it):
-        if it.get('severity') not in SEVERITIES:
-            raise ValueError('severity must be one of ' + ', '.join(SEVERITIES))
-        if it.get('owner') not in OWNERS:
-            raise ValueError('owner must be one of ' + ', '.join(OWNERS))
-        if it.get('status') not in STATUSES:
-            raise ValueError('status must be one of ' + ', '.join(STATUSES))
-        sides = it.get('sides')
-        if not isinstance(sides, list) or not sides or not all(isinstance(s, str) and SIDE_KEY.match(s) for s in sides):
-            raise ValueError('sides: a non-empty list of "F", "B", "In1", "In2", ...')
-        for k in ('x', 'y'):
-            if not isinstance(it.get(k), (int, float)):
-                raise ValueError('%s (board mm) is required' % k)
-        if not isinstance(it.get('refs', []), list) or not isinstance(it.get('thread', []), list):
-            raise ValueError('refs and thread are lists')
-        if not all(isinstance(sp, dict) and all(isinstance(sp.get(k), (int, float)) for k in ('x', 'y')) for sp in it.get('spots', [])):
-            raise ValueError('spots: a list of {x, y, label?, r?} (board mm)')
-
-    def put(self, body):
-        """Create or replace an item; status and thread are kept unless given."""
-        iid = str(body.get('id') or '').strip()
-        if not re.match(r'^[\w.-]+$', iid):
-            raise ValueError('id: letters, digits, _ . - only')
-        if not str(body.get('title') or '').strip():
-            raise ValueError('title is required')
-        with self.lock:
-            old = self.data['items'].get(iid) or {}
-            it = {'severity': '情報', 'owner': '未定', 'refs': [], 'text': '', 'action': '',
-                  'status': old.get('status', '未確認'), 'thread': old.get('thread', [])}
-            for k in ('status_rev', 'agent_rev'):
-                if k in old:
-                    it[k] = old[k]
-            it.update({k: body[k] for k in ITEM_FIELDS if k in body})
-            if 'r' not in it and 'w' not in it:
-                it['r'] = 1.0
-            self._check(it)
-            self.data['items'][iid] = it
-            self._save()
-            return dict(it, id=iid, rev=self.rev)
-
-    def delete(self, iid):
-        with self.lock:
-            self._item(iid)
-            del self.data['items'][iid]
-            self._save()
-            return {'deleted': iid, 'rev': self.rev}
-
-    def post(self, who, iid, status=None, text=None):
-        if status is not None and status not in STATUSES:
-            raise ValueError('status must be one of ' + ', '.join(STATUSES))
-        with self.lock:
-            it = self._item(iid)
-            if status is not None:
-                it['status'] = status
-            if text and text.strip():
-                it.setdefault('thread', []).append({'who': who, 'text': text.strip(),
-                                                    'time': time.strftime('%Y-%m-%d %H:%M:%S')})
-            if who == 'agent':
-                it['agent_rev'] = self.rev + 1       # the revision _save is about to write
-            elif status is not None:
-                it['status_rev'] = self.rev + 1
-            self._save()
-            return dict(it, id=iid, rev=self.rev)
-
-    def new(self, x, y, side, comment, dump):
-        """A question the user asks at a point of the board: item Q<n>, refs = what is there."""
-        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
-            raise ValueError('x and y (board mm) are required')
-        if not isinstance(side, str) or not SIDE_KEY.match(side):
-            raise ValueError('side: "F", "B", "In1", ...')
-        if not (comment or '').strip():
-            raise ValueError('comment is required')
-        ref, near = nearest(dump, x, y, side)
-        first = comment.strip().splitlines()[0]
-        with self.lock:
-            n = 1
-            while 'Q%d' % n in self.data['items']:
-                n += 1
-            iid = 'Q%d' % n
-            it = {'title': first[:60] + ('…' if len(first) > 60 else ''), 'severity': '情報', 'owner': '未定',
-                  'sides': [side], 'x': round(x, 3), 'y': round(y, 3), 'r': 1.0, 'refs': [ref] if ref else [],
-                  'near': near, 'text': '', 'action': '', 'status': '質問',
-                  'thread': [{'who': 'user', 'text': comment.strip(), 'time': time.strftime('%Y-%m-%d %H:%M:%S')}],
-                  'status_rev': self.rev + 1}
-            self.data['items'][iid] = it
-            self._save()
-            return dict(it, id=iid, rev=self.rev)
-
-
-# ---------------------------------------------------------------- API
-class Api:
-    """The board / review routes. Each method returns (code, body, content type, cacheable) or None (not ours)."""
-
-    def __init__(self, board, review):
-        self.board, self.review = board, review
-
-    def get(self, path, query):
-        if path == '/api/board':
-            return 200, self.board.info(), 'application/json', False
-        if path == '/api/board/version':
-            return 200, self.board.version(), 'application/json', False
-        if path == '/api/review':
-            return 200, self.review.get(), 'application/json', False
-        if path == '/api/review/pending':
-            return 200, self.review.pending(), 'application/json', False
-        if path.startswith('/figures/'):            # explanation figures: <data>/figures/<board stem>/<name>
-            name = unquote(path[len('/figures/'):])
-            ctype = FIGURE_TYPES.get(os.path.splitext(name)[1].lower())
-            p = os.path.join(self.board.data, 'figures', self.board.stem, name)
-            if not ctype or not re.match(r'^[\w.-]+$', name) or not os.path.isfile(p):
-                return 404, {'error': 'not found'}, 'application/json', False
-            with open(p, 'rb') as f:
-                return 200, f.read(), ctype, False
-        if path.startswith('/svg/'):
-            parts = path.split('/')
-            p = self.board.svg_path(parts[2], parts[3]) if len(parts) == 4 else None
-            if not p:
-                return 404, {'error': 'not found'}, 'application/json', False
-            with open(p, 'rb') as f:
-                return 200, f.read(), 'image/svg+xml', True        # the URL carries the content hash
-        return None
-
-    def post(self, path, body):
-        if path == '/api/reload':
-            self.board.wake.set()
-            return 200, {'status': 'reloading'}, 'application/json', False
-        if path == '/api/review/item':
-            out = self.review.put(body)
-        elif path == '/api/review/agent':
-            out = self.review.post('agent', body.get('id') or '', body.get('status'), body.get('reply'))
-        elif path == '/api/review/user':
-            out = self.review.post('user', body.get('id') or '', body.get('status'), body.get('comment'))
-        elif path == '/api/review/new':
-            out = self.review.new(body.get('x'), body.get('y'), body.get('side'), body.get('comment'),
-                                  self.board.info()['dump'])
-        else:
-            return None
-        return 200, out, 'application/json', False
-
-    def delete(self, path, query):
-        if path == '/api/review/item':
-            return 200, self.review.delete((parse_qs(query).get('id') or [''])[0]), 'application/json', False
-        return None

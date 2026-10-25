@@ -3,11 +3,11 @@
   --bg: #f4f4f2; --panel: #ffffff; --line: #d8d8d4; --text: #222; --muted: #6b6b66; --sel: #ff00aa; --link: #2b6fd6;
   --sev-必須: #d33a2c; --sev-推奨: #e07800; --sev-任意: #2b6fd6; --sev-情報: #8a8a85;
   --st-open: #e0b400; --st-work: #ff8c00; --st-ask: #e01ee0; --st-done: #1a9a36; --st-keep: #7a7f85;
-  --listw: 400px; --deth: 50%;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body { font: 13px/1.45 system-ui, "Segoe UI", "Yu Gothic UI", sans-serif; color: var(--text); background: var(--bg); overflow: hidden; }
+body { font: 13px/1.45 system-ui, "Segoe UI", "Yu Gothic UI", sans-serif; color: var(--text); background: var(--bg); overflow: hidden;
+  display: flex; flex-direction: column; }
 a { color: var(--link); }
 button { font: inherit; padding: 3px 9px; border: 1px solid var(--line); background: #fafaf8; border-radius: 4px; cursor: pointer; white-space: nowrap; }
 button:hover { background: #eeeeea; }
@@ -17,7 +17,7 @@ button.on { background: #222; color: #fff; border-color: #222; }
   pointer-events: none; white-space: nowrap; transition: opacity .3s; }
 
 /* header: the two views, the agent's presence, a newer page */
-header { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; padding: 5px 8px; background: var(--panel);
+header { flex: 0 0 auto; display: flex; gap: 8px; align-items: center; padding: 5px 8px; background: var(--panel);
   border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
 #tabs { display: flex; gap: 2px; flex: 0 0 auto; }
 #tabs a { display: inline-block; padding: 2px 10px; border: 1px solid var(--line); border-radius: 4px; color: var(--text);
@@ -34,18 +34,39 @@ header { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; padd
 #pageNew { background: var(--sev-推奨); border-color: var(--sev-推奨); color: #fff; font-weight: 700; }
 #pageNew.off { visibility: hidden; }   /* keeps its place so the header does not shift */
 
-/* left column: list, splitter, detail */
-aside { grid-column: 1; display: flex; flex-direction: column; background: var(--panel); min-width: 0; min-height: 0; }
-#split { grid-column: 2; cursor: col-resize; background: var(--line); }
-#split:hover, #split.drag, #hsplit:hover, #hsplit.drag { background: #a8a8a2; }
+/* the work area: the drawing (#center) and the docks 左 / 右 / 下 holding the panels 一覧 and 詳細 */
+#work { position: relative; flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; --dockL: 400px; --dockR: 380px; --dockB: 260px; }
+#upper { flex: 1 1 0; min-height: 0; display: flex; }
+#center { flex: 1 1 0; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto 1fr; }
+.dock { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); }
+.dock[hidden], .dsplit[hidden] { display: none; }
+#dockL { flex: 0 0 var(--dockL); }
+#dockR { flex: 0 0 var(--dockR); }
+#dockB { flex: 0 0 var(--dockB); flex-direction: row; }
+.dsplit { flex: 0 0 6px; background: var(--line); }
+#upper > .dsplit { cursor: col-resize; }
+#work > .dsplit { cursor: row-resize; }
+.psplit { flex: 0 0 6px; background: var(--line); cursor: row-resize; }
+#dockB .psplit { cursor: col-resize; }
+.dsplit:hover, .dsplit.drag, .psplit:hover, .psplit.drag { background: #a8a8a2; }
+.panelbox { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel); }
+.ptitle { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; padding: 1px 8px; font-size: 11px; color: var(--muted);
+  background: #ecece8; border-bottom: 1px solid var(--line); cursor: move; user-select: none; touch-action: none; }
+.ptitle .grip { font-size: 12px; letter-spacing: -1px; }
+body.moving, body.moving * { cursor: move !important; user-select: none; }
+.dropzones { position: absolute; inset: 0; z-index: 90; pointer-events: none; }
+.dz { position: absolute; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700;
+  color: rgba(43,111,214,.75); background: rgba(43,111,214,.08); border: 2px dashed rgba(43,111,214,.45); border-radius: 6px; }
+.dz:not(.hot) { align-items: flex-start; padding-top: 10px; }   /* the zone's name stays clear of the hot zone's text */
+.dz.hot { background: rgba(43,111,214,.28); border: 2px solid var(--link); color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+.dz[hidden] { display: none; }
 .list-h { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--muted); }
 #progress { width: 16em; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; }
 #progress .fixed { color: var(--st-done); font-weight: 400; }
 .list-h .grow { flex: 1; }
 #showDone, #showUnread { width: 7.5em; font-size: 12px; padding: 2px 4px; flex: 0 0 auto; }
-#list { flex: 1 1 0; overflow: auto; min-height: 60px; }
-#hsplit { flex: 0 0 6px; cursor: row-resize; background: var(--line); }
-#detail { flex: 0 0 var(--deth); display: flex; flex-direction: column; overflow: hidden; background: #fbfbf9; min-height: 0; }
+#list { flex: 1 1 0; overflow: auto; min-height: 40px; }
+#detail { flex: 1 1 0; display: flex; flex-direction: column; overflow: hidden; background: #fbfbf9; min-height: 0; }
 #detBody { flex: 1 1 auto; overflow: auto; padding: 8px 10px; min-height: 0; }
 .grp-h { position: sticky; top: 0; z-index: 1; background: #ecece8; padding: 4px 10px; font-weight: 700;
   border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }

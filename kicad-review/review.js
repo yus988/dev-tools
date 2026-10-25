@@ -296,14 +296,34 @@
     return { show };
   }
 
-  // ------------------------------------------------------------ splitters, keys
-  // list width --listw (#split) and detail height --deth (#hsplit), remembered under prefix; done() after a drag
-  function splitters(prefix, done) {
-    const root = document.documentElement;
-    const w = store.get(prefix + '.listw'), h = store.get(prefix + '.deth');
-    if (w) root.style.setProperty('--listw', w);
-    if (h) root.style.setProperty('--deth', h);
-    const drag = (el, move, end) => el.addEventListener('pointerdown', e => {
+  // ------------------------------------------------------------ dockable panels
+  // #work: #upper (#dockL, #center = the drawing, #dockR) over #dockB. The panels [data-panel] (list = 一覧, detail = 詳細)
+  // move between the docks by their title bar; a dock without panels takes no space. Arrangement and sizes are kept
+  // under <prefix>.layout; onChange() after a change (the drawing refits / redraws).
+  const DOCKS = ['L', 'R', 'B'];
+  const DOCK_NAME = { L: '左', R: '右', B: '下' };
+  const PANEL_NAME = { list: '一覧', detail: '詳細' };
+  function docks(prefix, onChange) {
+    const key = prefix + '.layout', work = $('work'), upper = $('upper');
+    const panels = {};
+    document.querySelectorAll('[data-panel]').forEach(p => { panels[p.dataset.panel] = p; });
+    const DEF = { docks: { L: ['list', 'detail'], R: [], B: [] }, size: { L: 400, R: 380, B: 260 }, ratio: { L: 0.5, R: 0.5, B: 0.5 } };
+    let lay = JSON.parse(JSON.stringify(DEF));
+    try {
+      const s = JSON.parse(store.get(key) || 'null');
+      const all = s && [].concat(...DOCKS.map(d => s.docks[d] || []));
+      if (all && all.length === 2 && all.includes('list') && all.includes('detail')) {
+        lay = { docks: { L: s.docks.L || [], R: s.docks.R || [], B: s.docks.B || [] }, size: Object.assign({}, DEF.size, s.size),
+                ratio: Object.assign({}, DEF.ratio, s.ratio) };
+      }
+    } catch (_) {}
+    const save = () => store.set(key, JSON.stringify(lay));
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const done = () => { save(); onChange(); };
+
+    // a bar dragged with the pointer: move(ev) while dragging, then end()
+    const bar = (el, move, end) => el.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
       e.preventDefault();
       el.classList.add('drag');
       el.setPointerCapture(e.pointerId);
@@ -312,12 +332,121 @@
       el.addEventListener('pointermove', mv);
       el.addEventListener('pointerup', up);
     });
-    drag($('split'), e => root.style.setProperty('--listw', Math.max(260, Math.min(innerWidth - 300, e.clientX)) + 'px'),
-      () => { store.set(prefix + '.listw', root.style.getPropertyValue('--listw')); if (done) done(); });
-    drag($('hsplit'), e => {
-      const a = $('hsplit').parentElement.getBoundingClientRect();
-      root.style.setProperty('--deth', Math.max(80, Math.min(a.height - 120, a.bottom - e.clientY)) + 'px');
-    }, () => store.set(prefix + '.deth', root.style.getPropertyValue('--deth')));
+
+    function sizes() {
+      for (const d of DOCKS) {
+        work.style.setProperty('--dock' + d, lay.size[d] + 'px');
+        lay.docks[d].forEach((n, i) => {
+          panels[n].style.flex = lay.docks[d].length < 2 ? '1 1 0' : i === 0 ? '0 0 calc(' + (lay.ratio[d] * 100).toFixed(2) + '% - 3px)' : '1 1 0';
+        });
+      }
+    }
+    function apply() {
+      for (const d of DOCKS) {
+        const el = $('dock' + d), names = lay.docks[d], kids = [];
+        names.forEach((n, i) => {
+          if (i) {                                   // between two panels of one dock
+            const s = document.createElement('div');
+            s.className = 'psplit';
+            s.title = 'ドラッグで大きさを変更';
+            bar(s, ev => {
+              const r = el.getBoundingClientRect();
+              lay.ratio[d] = clamp(d === 'B' ? (ev.clientX - r.left) / r.width : (ev.clientY - r.top) / r.height, 0.1, 0.9);
+              sizes();
+            }, done);
+            kids.push(s);
+          }
+          kids.push(panels[n]);
+        });
+        el.replaceChildren(...kids);
+        el.hidden = !names.length;
+        work.querySelector('.dsplit[data-dock="' + d + '"]').hidden = !names.length;
+      }
+      sizes();
+    }
+    // splitters between a dock and the drawing
+    work.querySelectorAll('.dsplit').forEach(s => {
+      const d = s.dataset.dock;
+      s.title = 'ドラッグで大きさを変更';
+      bar(s, ev => {
+        const r = work.getBoundingClientRect();
+        if (d === 'L') lay.size.L = clamp(ev.clientX - r.left, 180, r.width - 240);
+        else if (d === 'R') lay.size.R = clamp(r.right - ev.clientX, 180, r.width - 240);
+        else lay.size.B = clamp(r.bottom - ev.clientY, 80, r.height - 120);
+        sizes();
+      }, done);
+    });
+
+    // moving a panel: the drop zones 左 / 右 / 下 show over the window; in a dock holding the other panel it goes before
+    // or after that panel by the pointer's position. Esc cancels.
+    function zoneOf(name, ev) {
+      const r = work.getBoundingClientRect(), u = upper.getBoundingClientRect();
+      const x = ev.clientX - r.left, y = ev.clientY - r.top;
+      const d = x < r.width * 0.22 ? 'L' : x > r.width * 0.78 ? 'R' : y > r.height * 0.7 ? 'B' : null;
+      if (!d) return null;
+      const other = lay.docks[d].some(n => n !== name);
+      const before = other && (d === 'B' ? x < r.width / 2 : ev.clientY - u.top < u.height / 2);
+      return { d, other, before };
+    }
+    function zoneRect(z, r, u) {                  // [left, top, width, height] in #work
+      const W = r.width, H = r.height, top = Math.min(u.height, H * 0.7);
+      let b = z.d === 'L' ? [0, 0, W * 0.3, u.height] : z.d === 'R' ? [W * 0.7, 0, W * 0.3, u.height] : [0, top, W, H - top];
+      if (z.other) b = z.d === 'B' ? (z.before ? [b[0], b[1], b[2] / 2, b[3]] : [b[0] + b[2] / 2, b[1], b[2] / 2, b[3]])
+        : (z.before ? [b[0], b[1], b[2], b[3] / 2] : [b[0], b[1] + b[3] / 2, b[2], b[3] / 2]);
+      return b;
+    }
+    const place = (el, b) => { el.style.left = b[0] + 'px'; el.style.top = b[1] + 'px'; el.style.width = b[2] + 'px'; el.style.height = b[3] + 'px'; };
+    function startMove(name, e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const layer = document.createElement('div');
+      layer.className = 'dropzones';
+      for (const d of DOCKS) {
+        const z = document.createElement('div');
+        z.className = 'dz';
+        z.textContent = DOCK_NAME[d];
+        place(z, zoneRect({ d, other: false }, work.getBoundingClientRect(), upper.getBoundingClientRect()));
+        layer.appendChild(z);
+      }
+      const hot = document.createElement('div');
+      hot.className = 'dz hot';
+      hot.hidden = true;
+      layer.appendChild(hot);
+      work.appendChild(layer);
+      document.body.classList.add('moving');
+      let target = null;
+      const mv = ev => {
+        target = zoneOf(name, ev);
+        hot.hidden = !target;
+        if (!target) return;
+        place(hot, zoneRect(target, work.getBoundingClientRect(), upper.getBoundingClientRect()));
+        const side = !target.other ? '' : target.d === 'B' ? (target.before ? '（左側）' : '（右側）') : (target.before ? '（上側）' : '（下側）');
+        hot.textContent = PANEL_NAME[name] + ' → ' + DOCK_NAME[target.d] + side;
+      };
+      const finish = commit => {
+        removeEventListener('pointermove', mv);
+        removeEventListener('pointerup', up);
+        removeEventListener('keydown', esc, true);
+        layer.remove();
+        document.body.classList.remove('moving');
+        if (!commit || !target) return;
+        for (const d of DOCKS) lay.docks[d] = lay.docks[d].filter(n => n !== name);
+        if (target.before) lay.docks[target.d].unshift(name); else lay.docks[target.d].push(name);
+        apply();
+        done();
+      };
+      const up = () => finish(true);
+      const esc = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopImmediatePropagation(); finish(false); } };
+      addEventListener('pointermove', mv);
+      addEventListener('pointerup', up);
+      addEventListener('keydown', esc, true);
+    }
+    for (const [name, p] of Object.entries(panels)) {
+      const t = p.querySelector('.ptitle');
+      t.title = 'ドラッグで移動（左・右・下）';
+      t.addEventListener('pointerdown', e => startMove(name, e));
+    }
+    apply();
   }
 
   // ↑ / ↓: the previous / next row of the list as shown; not while typing or while the figure or a panel is open
@@ -340,6 +469,6 @@
     $, esc, store, api, notice, init, connect, markSeen, onInfo, info: () => info, takeRef,
     STATUS_BTNS, BTN_LABEL, ST_NAME, ST_MARK, DONE, SEVERITIES, SEV_MEANING, OWNER_MEANING, stClass, isWaiting, isUnread,
     filters, sevChip, ownerChip, rowHtml, groupHtml, neighbor, askHtml, notesHtml, msgsHtml, threadHtml,
-    openFigure, closeFigure, figureOpen, bindFigures, footer, splitters, arrowKeys,
+    openFigure, closeFigure, figureOpen, bindFigures, footer, docks, arrowKeys,
   };
 })();

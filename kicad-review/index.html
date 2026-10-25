@@ -471,7 +471,10 @@ function drawOverlay() {
     parts.push('<g opacity="' + op + '">' + shape + '<text x="' + lx + '" y="' + ly + '" fill="' + col + '"' +
       (sel ? ' style="font-size:15px"' : '') + '>' + esc(id) + (fixed ? ' ✔' : '') + '</text></g>');
   }
-  if (S.sel && S.items[S.sel]) parts.push(pinArrows(S.items[S.sel], ST_COLOR[S.items[S.sel].status] || ST_COLOR['未確認']));
+  if (S.sel && S.items[S.sel]) {
+    const it = S.items[S.sel], col = ST_COLOR[it.status] || ST_COLOR['未確認'];
+    parts.push(pinArrows(it, col), spotArrows(it, col));
+  }
   ov.innerHTML = parts.join('');
 }
 
@@ -508,16 +511,34 @@ function pinArrows(it, col) {
     if (n < 1e-3) { ux = -Math.SQRT1_2; uy = -Math.SQRT1_2; } else { ux /= n; uy /= n; }
     const xs = poly.map(q => q[0]), ys = poly.map(q => q[1]);
     const rad = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 * v.s;
-    const cx = p.x * v.s + v.tx, cy = p.y * v.s + v.ty;
-    const tx = cx + ux * (rad + 3), ty = cy + uy * (rad + 3);            // tip just outside the pad
-    const L = 38, ex = tx + ux * L, ey = ty + uy * L;                    // tail
-    const bx = tx + ux * 11, by = ty + uy * 11, nx = -uy * 5.5, ny = ux * 5.5;
-    const head = tx + ',' + ty + ' ' + (bx + nx) + ',' + (by + ny) + ' ' + (bx - nx) + ',' + (by - ny);
-    out.push('<line x1="' + ex + '" y1="' + ey + '" x2="' + bx + '" y2="' + by + '" stroke="#000" stroke-width="6"/>' +
-      '<polygon points="' + head + '" fill="#000" stroke="#000" stroke-width="3" stroke-linejoin="round"/>' +
-      '<line x1="' + ex + '" y1="' + ey + '" x2="' + bx + '" y2="' + by + '" stroke="' + col + '" stroke-width="3"/>' +
-      '<polygon points="' + head + '" fill="' + col + '"/>' +
-      '<text x="' + (ex + ux * 4) + '" y="' + (ey + uy * 4 + 4) + '" fill="' + col + '" text-anchor="' + (ux >= 0 ? 'start' : 'end') + '">' + esc(sp) + '</text>');
+    out.push(arrowTo(p.x * v.s + v.tx, p.y * v.s + v.ty, ux, uy, rad, col, sp));
+  }
+  return out.join('');
+}
+// an arrow pointing at (cx, cy) in screen px from direction (ux, uy), its tip rad + 3 off the centre, the label at its tail
+function arrowTo(cx, cy, ux, uy, rad, col, label) {
+  const tx = cx + ux * (rad + 3), ty = cy + uy * (rad + 3);            // tip just outside the target
+  const L = 38, ex = tx + ux * L, ey = ty + uy * L;                    // tail
+  const bx = tx + ux * 11, by = ty + uy * 11, nx = -uy * 5.5, ny = ux * 5.5;
+  const head = tx + ',' + ty + ' ' + (bx + nx) + ',' + (by + ny) + ' ' + (bx - nx) + ',' + (by - ny);
+  return '<line x1="' + ex + '" y1="' + ey + '" x2="' + bx + '" y2="' + by + '" stroke="#000" stroke-width="6"/>' +
+    '<polygon points="' + head + '" fill="#000" stroke="#000" stroke-width="3" stroke-linejoin="round"/>' +
+    '<line x1="' + ex + '" y1="' + ey + '" x2="' + bx + '" y2="' + by + '" stroke="' + col + '" stroke-width="3"/>' +
+    '<polygon points="' + head + '" fill="' + col + '"/>' +
+    '<text x="' + (ex + ux * 4) + '" y="' + (ey + uy * 4 + 4) + '" fill="' + col + '" text-anchor="' + (ux >= 0 ? 'start' : 'end') + '">' + esc(label) + '</text>';
+}
+// selected item: a ring on each of its spots ({x, y, label}: vias or other places that are not pads) and an arrow at it,
+// coming from away from the item's centre
+function spotArrows(it, col) {
+  const v = S.view, out = [];
+  for (const [i, sp] of (it.spots || []).entries()) {
+    let ux = sp.x - it.x, uy = sp.y - it.y;
+    const n = Math.hypot(ux, uy);
+    if (n < 1e-3) { ux = -Math.SQRT1_2; uy = -Math.SQRT1_2; } else { ux /= n; uy /= n; }
+    const cx = sp.x * v.s + v.tx, cy = sp.y * v.s + v.ty, rad = Math.max(7, (sp.r || 0.4) * v.s);
+    out.push('<circle cx="' + cx + '" cy="' + cy + '" r="' + rad + '" fill="none" stroke="#000" stroke-width="5"/>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + rad + '" fill="none" stroke="' + col + '" stroke-width="2.5"/>' +
+      arrowTo(cx, cy, ux, uy, rad, col, sp.label || String(i + 1)));
   }
   return out.join('');
 }
@@ -672,6 +693,7 @@ function renderDetail() {
     '<div class="row"><span class="k">部品</span>' + (it.refs && it.refs.length ? esc(it.refs.join(', ')) : '<span class="none">-</span>') +
     (it.near ? '<span class="meaning">' + esc(it.near) + '</span>' : '') + '</div>' +
     (it.pins && it.pins.length ? '<div class="row"><span class="k">ピン</span>' + esc(it.pins.join(', ')) + '<span class="meaning">（基板の図で矢印）</span></div>' : '') +
+    (it.spots && it.spots.length ? '<div class="row"><span class="k">しるし</span>' + esc(it.spots.map((s, i) => s.label || String(i + 1)).join(', ')) + '<span class="meaning">（基板の図で矢印）</span></div>' : '') +
     '<div class="row"><span class="k">状態</span><span class="badge s-' + esc(st) + '">' + (ST_MARK[st] || '') + ' ' + esc(ST_NAME[st] || st) + '</span></div>';
   if (it.signal) h += '<h4>信号・電流・注意</h4><div class="text">' + esc(it.signal) + '</div>';
   if (it.ideal) h += '<h4>理想</h4><div class="text">' + esc(it.ideal) + '</div>';
@@ -758,8 +780,10 @@ function select(id, move) {
     if (cuSides.length > 1) setMulti(cuSides, cuSides.includes(side) ? side : cuSides[0]);
     else if (side === 'F' || side === 'B') setPreset(side);
     else setPreset('In', side);
-    if (pads.length) {                 // pins given: frame the pins, closer than an area
-      const xs = pads.flatMap(([, p]) => padPoly(p).map(q => q[0])), ys = pads.flatMap(([, p]) => padPoly(p).map(q => q[1]));
+    const spots = it.spots || [];
+    if (pads.length || spots.length) { // pins or spots given: frame them, closer than an area
+      const xs = [...pads.flatMap(([, p]) => padPoly(p).map(q => q[0])), ...spots.map(s => s.x)];
+      const ys = [...pads.flatMap(([, p]) => padPoly(p).map(q => q[1])), ...spots.map(s => s.y)];
       const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
       focusOn((x0 + x1) / 2, (y0 + y1) / 2, Math.max(PIN_FOCUS_MM, (x1 - x0) * 1.6, (y1 - y0) * 1.6));
     } else {

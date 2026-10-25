@@ -53,7 +53,7 @@ def page_stamp():
 FIGURE_TYPES = {'.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg'}
 # ask / ideal / background are the item's three sections (依頼 / 理想 / 経緯), signal the line's kind, current and
 # routing cautions for a routing request; text / action are the older pair
-ITEM_FIELDS = ('title', 'severity', 'owner', 'sides', 'x', 'y', 'r', 'w', 'h', 'refs', 'pins', 'ask', 'signal', 'ideal', 'background', 'figures',
+ITEM_FIELDS = ('title', 'severity', 'owner', 'sides', 'x', 'y', 'r', 'w', 'h', 'refs', 'pins', 'spots', 'ask', 'signal', 'ideal', 'background', 'figures',
                'text', 'action', 'status', 'thread', 'near')
 
 
@@ -347,6 +347,8 @@ class Review:
                 raise ValueError('%s (board mm) is required' % k)
         if not isinstance(it.get('refs', []), list) or not isinstance(it.get('thread', []), list):
             raise ValueError('refs and thread are lists')
+        if not all(isinstance(sp, dict) and all(isinstance(sp.get(k), (int, float)) for k in ('x', 'y')) for sp in it.get('spots', [])):
+            raise ValueError('spots: a list of {x, y, label?, r?} (board mm)')
 
     def put(self, body):
         """Create or replace an item; status and thread are kept unless given."""

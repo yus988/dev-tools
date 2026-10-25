@@ -55,7 +55,10 @@ class StoreTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.s.agent('A1', fields={'thread': []})
         with self.assertRaises(ValueError):
-            self.s.user('bad id', status='OK')
+            self.s.user('bad\nid', status='OK')
+        with self.assertRaises(ValueError):
+            self.s.user('', status='OK')
+        self.assertEqual(self.s.user('net:/Power In/Net-(U6-EN)', status='OK')['status'], 'OK')
 
     def test_deleted_file_starts_over(self):
         self.s.user('C1', status='NG')

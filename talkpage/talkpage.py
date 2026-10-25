@@ -30,7 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get('TALKPAGE_PORT') or 8190)
-ID_RE = re.compile(r'^[\w.:/,+@-]{1,200}$')          # also other tools' keys, e.g. label:/Sheet/:12.7,5.08
+ID_RE = re.compile(r'^[^\x00-\x1f\x7f]{1,200}$')     # also other tools' keys, e.g. net:/Power In/Net-(U6-EN)
 RESERVED = ('thread', 'status', 'user_rev', 'agent_rev', 'seen_rev')     # item fields the agent cannot set directly
 SKIP_DIRS = ('node_modules', '__pycache__')
 CLIENT = ('talkpage.js', 'talkpage.css')
@@ -133,7 +133,7 @@ class Store:
 
     def item(self, iid, create=False):
         if not isinstance(iid, str) or not ID_RE.match(iid):
-            raise ValueError('id: 1-200 letters, digits and _ . : / , + @ -')
+            raise ValueError('id: 1-200 characters, no control characters')
         it = self.data['items'].get(iid)
         if it is None:
             if not create:
@@ -633,8 +633,13 @@ def cmd_reply(a):
             text = f.read()
     elif text == '-':
         text = sys.stdin.buffer.read().decode('utf-8')
-    body = {'page': a.page, 'id': a.id, 'reply': text, 'status': a.status,
-            'fields': json.loads(a.fields) if a.fields else None}
+    fields = None
+    if a.fields and a.fields.startswith('@'):                       # @file: Japanese text without the shell's quoting
+        with open(a.fields[1:], encoding='utf-8') as f:
+            fields = json.load(f)
+    elif a.fields:
+        fields = json.loads(a.fields)
+    body = {'page': a.page, 'id': a.id, 'reply': text, 'status': a.status, 'fields': fields}
     r = call(a, '/_talk/api/agent', body)
     print('talkpage: %s  %s  [%s]  %d message(s)' % (r['page'], r['id'], r['status'] or '-',
                                                     sum(1 for m in r['thread'] if m.get('text'))))
@@ -678,7 +683,7 @@ def main():
     s.add_argument('--status', help='set the status ("" clears it)')
     s.add_argument('--text', help='the reply; "-" reads it from stdin (UTF-8)')
     s.add_argument('--file', help='read the reply from this UTF-8 file')
-    s.add_argument('--fields', help='JSON object of extra item fields to store')
+    s.add_argument('--fields', help='JSON object of extra item fields to store, or @file with that JSON (UTF-8)')
     s = sub.add_parser('ack', help='mark what waits as read without replying')
     s.add_argument('--page')
     s.add_argument('--id', action='append', help='only these items (repeat)')

@@ -10,7 +10,7 @@ KiCad 10 の回路図と基板を、ユーザーとコーディングエージ�
 - Python 3.9+ の標準ライブラリだけ（サーバー）。ページは CDN を使わず、オフラインで動く
 - KiCad 10（`kicad-cli`、KiCad 同梱の python、eeschema）を別に入れておく。git の版を比べるときは git も
 - 比べる・見るプロジェクトのフォルダには書き込まない（`cache/` にコピーしてから書き出す。git の版は `git archive` で書き出し、作業ツリーは触らない）
-- サーバーは `127.0.0.1` だけで待ち受け、`Host` が `127.0.0.1:<port>` / `localhost:<port>` 以外の要求と、別のサイトのページからの要求（`Origin` が違う）は断る
+- サーバーは `127.0.0.1` だけで待ち受け、別の `Host`・別のサイトのページからの要求を断る（talkpage の README の「安全」と同じ）。POST・DELETE と、`git` を動かす・フォルダを辿る GET（`/api/refs`・`/api/projects`）は、ページからの要求か `Origin: http://127.0.0.1:<port>` を付けた要求だけを通す（`kireview.py put` / `group` などのコマンドは付けている）。`<data>/figures/` の SVG はサーバーと同じ origin で開かれるので、作った図だけを置く
 
 ## 起動
 

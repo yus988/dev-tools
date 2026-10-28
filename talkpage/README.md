@@ -133,7 +133,7 @@ then wait again in the background: python ".../talkpage.py" wait
 
 ## HTTP API
 
-すべて `http://127.0.0.1:<port>` のみ。POST は `Content-Type: application/json` だけ受け付ける。
+すべて `http://127.0.0.1:<port>` のみ。POST は `Content-Type: application/json` だけ受け付け、ブラウザの外からは `Origin: http://127.0.0.1:<port>` を付ける（「安全」）。
 
 | | |
 |---|---|
@@ -150,7 +150,14 @@ agent・ack・state・pending の `page` は、パスの一部（状態のある
 
 ## 安全
 
-- 待ち受けは `127.0.0.1` だけ。`Host` が `127.0.0.1:<port>` / `localhost:<port>` 以外の要求（DNS rebinding）と、別のサイトのページからの要求（`Origin` が違う）は 403。POST は JSON だけなので、別のサイトのフォームからは送れない
+- 待ち受けは `127.0.0.1` だけ。CORS のヘッダーは付けない（別のサイトの `fetch` は応答を読めず、preflight の `OPTIONS` は 501）
+- 次は 403（`Handler._local`）:
+  - `Host` が `127.0.0.1:<port>` / `localhost:<port>` 以外（DNS rebinding）
+  - `Origin` が `http://127.0.0.1:<port>` / `http://localhost:<port>` 以外（別のサイトのページ。`null` も）
+  - ブラウザが `Sec-Fetch-Site: cross-site` / `same-site` を付けた要求。別のサイトからは、リンクでページを開くこと（最上位の画面の移動）だけを通す。`<img>`・`<script>`・iframe・`fetch` は通さない
+  - 状態を変える要求（POST・DELETE と、`wait` が項目を受け取る `pending?listen=1` / `take=1`）で、`Origin` が無く、ページからの要求の印（`Sec-Fetch-Site: same-origin`、または自分の `Referer`）も無いもの。ブラウザの外のクライアントは `Origin: http://127.0.0.1:<port>` を付ける（`talkpage.py` のコマンドは付けている）。読むだけの GET（`info`・`state`）は、ヘッダー無しの curl でも読める
+- POST は JSON だけなので、別のサイトのフォーム（`text/plain` 等）からは送れない。ページは `X-Frame-Options: SAMEORIGIN` で、別のサイトの枠に入れて押させることもできない
+- root の下の HTML はすべて同じ origin で、ユーザーとしてコメントを送れる。root にはエージェントが作ったページだけを置き、ダウンロードした HTML や外部のページの保存を置かない。外から取った文（メール・Web・データシート）をページに入れるときは、HTML ではなく文字として入れる
 - 配るファイルは root の下だけ（`..` と `.` で始まる名前は拒否）。書くのは root の下に実在するページの横の `.talk.json` だけ
 - メッセージの表示はすべて文字として入れる（改行、`` `コード` ``、http(s) のリンクだけを整える）
 

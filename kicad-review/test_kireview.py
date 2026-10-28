@@ -98,10 +98,14 @@ class ServerTest(unittest.TestCase):
         shutil.rmtree(cls.dir)
 
     def req(self, path, body=None, headers=None, method=None):
-        h = {'Content-Type': 'application/json'} if body is not None else {}
+        """(code, body) of a request sent like the page does (our Origin); headers: None removes one."""
+        h = {'Origin': 'http://127.0.0.1:%d' % self.port}
+        if body is not None:
+            h['Content-Type'] = 'application/json'
         h.update(headers or {})
         r = urllib.request.Request('http://127.0.0.1:%d%s' % (self.port, path),
-                                   json.dumps(body).encode() if body is not None else None, h, method=method)
+                                   json.dumps(body).encode() if body is not None else None,
+                                   {k: v for k, v in h.items() if v is not None}, method=method)
         try:
             with OPENER.open(r, timeout=10) as resp:
                 data = resp.read()
@@ -125,6 +129,19 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req('/_talk/api/pending')[1]['items'], [])
         self.assertEqual(self.req('/api/info', headers={'Host': 'evil.example:%d' % self.port})[0], 403)
         self.assertEqual(self.req('/api/board/item?id=H1', headers={'Origin': 'https://evil.example'}, method='DELETE')[0], 403)
+        self.assertEqual(self.req('/api/board/item?id=H1', headers={'Origin': None}, method='DELETE')[0], 403)
+        self.assertEqual(self.req('/_talk/api/user', {'page': page, 'id': 'H1', 'comment': 'x'}, {'Origin': None})[0], 403)
+
+    def test_git_and_folder_reads(self):
+        """/api/refs runs git and /api/projects walks the folder of the query: our pages and clients only."""
+        q = '/api/projects?dir=' + urllib.request.quote(self.dir)
+        self.assertEqual(self.req(q)[0], 200)
+        self.assertEqual(self.req(q, headers={'Origin': None, 'Sec-Fetch-Site': 'same-origin'})[0], 200)
+        self.assertEqual(self.req(q, headers={'Origin': None})[0], 403)
+        self.assertEqual(self.req(q, headers={'Origin': None, 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'no-cors',
+                                              'Sec-Fetch-Dest': 'image'})[0], 403)
+        self.assertEqual(self.req('/api/refs?path=' + urllib.request.quote(self.dir), headers={'Origin': None})[0], 403)
+        self.assertEqual(self.req('/api/info', headers={'Origin': None})[0], 200)       # plain reads stay open
 
     def test_routes_without_targets(self):
         self.assertEqual(self.req('/api/sch/state')[1], {'empty': True})

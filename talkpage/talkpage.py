@@ -429,6 +429,7 @@ def dump(obj):
 class Handler(BaseHTTPRequestHandler):
     talk = None
     server_version = 'talkpage/1'
+    API = ('/_talk/api/',)                     # routes for the pages' scripts and the agent, not for opening
 
     def log_message(self, *_):
         pass
@@ -442,22 +443,46 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('X-Frame-Options', 'SAMEORIGIN')     # another site cannot frame a page to steer clicks
         for k, v in (headers or {}).items():
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
-    def _local(self):
-        """Only this server's own pages: refuse another host name (DNS rebinding) and other sites' pages."""
+    def _acts(self, path, q):
+        """A request that changes something: every POST / DELETE, and the agent's `wait` taking items."""
+        return self.command != 'GET' or path == '/_talk/api/pending' and bool(q.get('listen') or q.get('take'))
+
+    def _local(self, path, q):
+        """Only this server's own pages and the agent's commands. Host: another name is DNS rebinding. Origin (every
+        POST, other sites' fetches): ours or nothing. Sec-Fetch-Site (also <img>, <script>, forms): another site may
+        open a page by a link and nothing else. What acts needs our Origin, or a request of our page (same-origin,
+        or our Referer in a browser without Sec-Fetch-Site); clients without a browser send Origin (call())."""
         port = self.server.server_address[1]
-        hosts = ('127.0.0.1:%d' % port, 'localhost:%d' % port)
-        origin = (self.headers.get('Origin') or '').lower()
-        return (self.headers.get('Host') or '').lower() in hosts and (not origin or origin in ['http://' + h for h in hosts])
+        own = ('http://127.0.0.1:%d' % port, 'http://localhost:%d' % port)
+        h = self.headers
+        if (h.get('Host') or '').lower() not in [o[len('http://'):] for o in own]:
+            return False
+        origin = (h.get('Origin') or '').lower()
+        if origin:
+            return origin in own                                   # also refuses "null" (sandboxed frames, file:)
+        site = (h.get('Sec-Fetch-Site') or '').lower()
+        if site in ('cross-site', 'same-site'):
+            return (self.command == 'GET' and not path.startswith(self.API)
+                    and h.get('Sec-Fetch-Mode') == 'navigate' and h.get('Sec-Fetch-Dest') == 'document')
+        ref = urllib.parse.urlsplit(h.get('Referer') or '')
+        ref = ('%s://%s' % (ref.scheme, ref.netloc)).lower() if ref.netloc else ''
+        if ref and ref not in own:
+            return False
+        return not self._acts(path, q) or site == 'same-origin' or bool(ref)
 
     def _run(self, fn):
         try:
-            if not self._local():
-                return self._send(403, {'error': 'only pages of http://127.0.0.1:%d' % self.server.server_address[1]})
+            path, _, query = self.path.partition('?')
+            if not self._local(path, urllib.parse.parse_qs(query)):
+                port = self.server.server_address[1]
+                return self._send(403, {'error': 'only pages of http://127.0.0.1:%d; a client without a browser sends '
+                                                 'the header Origin: http://127.0.0.1:%d' % (port, port)})
             fn()
         except (BrokenPipeError, ConnectionError):
             pass                               # the page went away during a long poll
@@ -537,7 +562,10 @@ def call(a, path, body=None, timeout=15, **q):
     if q:
         url += '?' + urllib.parse.urlencode(q)
     data = dump(body) if body is not None else None
-    req = urllib.request.Request(url, data, {'Content-Type': 'application/json'} if data else {})
+    head = {'Origin': 'http://127.0.0.1:%d' % a.port}                # the server refuses writes without our Origin
+    if data:
+        head['Content-Type'] = 'application/json'
+    req = urllib.request.Request(url, data, head)
     try:
         with _opener.open(req, timeout=timeout) as r:
             return json.load(r)

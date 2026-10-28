@@ -107,15 +107,20 @@ class HttpTest(unittest.TestCase):
         cls.srv.server_close()
         shutil.rmtree(cls.root)
 
-    def req(self, path, body=None, headers=None, timeout=10):
-        h = {'Content-Type': 'application/json'} if body is not None else {}
+    def req(self, path, body=None, headers=None, timeout=10, info=False):
+        """(code, body) of a request sent like the page does (our Origin); headers: None removes one."""
+        h = {'Origin': 'http://127.0.0.1:%d' % self.port}
+        if body is not None:
+            h['Content-Type'] = 'application/json'
         h.update(headers or {})
         r = urllib.request.Request('http://127.0.0.1:%d%s' % (self.port, path),
-                                   json.dumps(body).encode() if body is not None else None, h)
+                                   json.dumps(body).encode() if body is not None else None,
+                                   {k: v for k, v in h.items() if v is not None})
         try:
             with OPENER.open(r, timeout=timeout) as resp:
                 data = resp.read()
-                return resp.status, json.loads(data) if 'json' in resp.headers['Content-Type'] else data
+                out = resp.status, json.loads(data) if 'json' in resp.headers['Content-Type'] else data
+                return out + (resp.headers,) if info else out
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read() or b'{}')
 
@@ -138,12 +143,42 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(self.req('/_talk/api/info', headers={'Host': 'evil.example:%d' % self.port})[0], 403)
         self.assertEqual(self.req('/_talk/api/user', {'page': 'notes/r1/index.html', 'id': 'A1', 'status': 'OK'},
                                   headers={'Origin': 'https://evil.example'})[0], 403)
-        r = urllib.request.Request('http://127.0.0.1:%d/_talk/api/user' % self.port, b'{}', {'Content-Type': 'text/plain'})
+        r = urllib.request.Request('http://127.0.0.1:%d/_talk/api/user' % self.port, b'{}', {
+            'Content-Type': 'text/plain', 'Origin': 'http://127.0.0.1:%d' % self.port})
         with self.assertRaises(urllib.error.HTTPError) as cm:
             OPENER.open(r, timeout=5)
         self.assertEqual(cm.exception.code, 415)
         self.assertEqual(self.req('/_talk/api/user', {'page': '../x.html', 'id': 'A1', 'status': 'OK'})[0], 400)
         self.assertEqual(self.req('/_talk/api/user', {'page': 'notes/r1/none.html', 'id': 'A1', 'status': 'OK'})[0], 400)
+
+    def test_2a_origins(self):
+        port = self.port
+        no_origin = {'Origin': None}
+        user = {'page': 'notes/r1/index.html', 'id': 'A1', 'status': 'OK'}
+        # writes: our Origin (either name) only; none (curl), "null" and another site's are refused
+        self.assertEqual(self.req('/_talk/api/user', user, no_origin)[0], 403)
+        self.assertEqual(self.req('/_talk/api/user', user, {'Origin': 'null'})[0], 403)
+        self.assertEqual(self.req('/_talk/api/ack', {'page': 'other'}, {'Origin': 'http://localhost:%d' % port})[0], 200)
+        self.assertEqual(self.req('/_talk/api/ack', {'page': 'other'}, {'Origin': 'http://127.0.0.1:1'})[0], 403)
+        # the agent's wait takes items: not by another site's <img>, also without Sec-Fetch-Site and Referer
+        cross = {'Origin': None, 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'no-cors', 'Sec-Fetch-Dest': 'image'}
+        self.assertEqual(self.req('/_talk/api/pending?take=1&listen=1', headers=cross)[0], 403)
+        self.assertEqual(self.req('/_talk/api/pending?take=1', headers=no_origin)[0], 403)
+        self.assertEqual(self.req('/_talk/api/pending?take=1', headers={'Origin': None,
+                                                                        'Sec-Fetch-Site': 'same-origin'})[0], 200)
+        self.assertEqual(self.req('/_talk/api/pending?take=1', headers={
+            'Origin': None, 'Referer': 'http://127.0.0.1:%d/notes/r1/' % port})[0], 200)
+        # reads: a client without a browser may read; another site's page may not, nor load our files
+        self.assertEqual(self.req('/_talk/api/info', headers=no_origin)[0], 200)
+        self.assertEqual(self.req('/_talk/api/info', headers={'Origin': None, 'Referer': 'https://evil.example/'})[0], 403)
+        self.assertEqual(self.req('/_talk/api/info', headers=dict(cross, **{'Sec-Fetch-Mode': 'cors'}))[0], 403)
+        self.assertEqual(self.req('/secret.txt', headers=dict(cross, **{'Sec-Fetch-Dest': 'script'}))[0], 403)
+        # another site may open a page by a link (top level), not frame it
+        nav = dict(cross, **{'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document'})
+        code, _, head = self.req('/notes/r1/', headers=nav, info=True)
+        self.assertEqual((code, head['X-Frame-Options']), (200, 'SAMEORIGIN'))
+        self.assertEqual(self.req('/notes/r1/', headers=dict(nav, **{'Sec-Fetch-Dest': 'iframe'}))[0], 403)
+        self.assertEqual(self.req('/_talk/api/pending?take=1', headers=nav)[0], 403)
 
     def test_2b_agent_writes_first(self):
         r = self.cli('reply', '--page', 'other', '--id', 'X1', '--status', 'OK')     # a page with no state yet

@@ -295,6 +295,11 @@ class Handler(tp.Handler):
     """talkpage's handler (127.0.0.1 only, own pages only, JSON POSTs) with the review routes."""
     app = None
     server_version = 'kireview/2'
+    API = ('/_talk/api/', '/api/')
+
+    def _acts(self, path, q):
+        """Also the GETs that run git or walk folders at a path from the query."""
+        return super()._acts(path, q) or path in ('/api/refs', '/api/projects')
 
     def _send(self, code, body, ctype='application/json', cache=False, headers=None):
         if not isinstance(body, bytes):
@@ -305,6 +310,7 @@ class Handler(tp.Handler):
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'max-age=86400' if cache else 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('X-Frame-Options', 'SAMEORIGIN')
         for k, v in (headers or {}).items():
             self.send_header(k, v)
         self.end_headers()

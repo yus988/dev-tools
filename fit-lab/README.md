@@ -1,94 +1,96 @@
 # fit-lab
 
-A small local web tool for recording **CAD design values vs. measured values** of 3D-printed parts, per print lot (campaign) and per clearance variant, with annotated screenshots. Data is plain JSON + PNG so it can live in git, be diffed, and be read or written by AI agents. Over many lots it becomes a knowledge base ("PA12 holes print 0.1–0.2 mm small on diameter").
+[English](README.en.md)
 
-- No dependencies: Python 3.9+ standard library for the server, plain HTML/JS/CSS for the app (no build step, no CDN, works offline).
-- `serve.py` binds to `127.0.0.1` by default (`--host` to change it).
-- The data (campaigns) is not part of this repo: keep it in the workspace of the project that uses it and pass its folder with `--root` (or `FIT_LAB_ROOT`).
+3D プリントなどの造形品の **CAD の設計値と実測値** を、造形のロット（campaign）とクリアランスの版（variant）ごとに、注記付きの画面の画像と一緒に記録する小さなローカルの Web ツール。データはただの JSON と PNG なので、git に入れて差分を見られ、AI エージェントが読み書きできる。ロットが増えると知見の蓄積になる（「PA12 の穴は直径で 0.1–0.2 mm 小さく出る」）。
 
-## Two ways to run
+- 依存なし: サーバーは Python 3.9+ の標準ライブラリ、アプリはただの HTML/JS/CSS（ビルド不要、CDN なし、オフラインで動く）
+- `serve.py` の待ち受けは既定で `127.0.0.1`（変えるときは `--host`）
+- データ（campaign）はこの repo に入れない。使う側のプロジェクトの workspace に置き、そのフォルダを `--root`（または `FIT_LAB_ROOT`）で渡す
 
-The app auto-detects its data source at start-up: if `/api/campaigns` answers it uses **server mode**, otherwise it shows **folder mode**. The current mode is shown in the top bar (サーバー / フォルダ / 未接続).
+## 2 つの起動方法
 
-### 1. Server mode (`serve.py`)
+アプリは起動時にデータの出どころを自動で判定する。`/api/campaigns` が応答すれば **サーバーモード**、応答しなければ **フォルダモード** を出す。今のモードは上のバーに出る（サーバー / フォルダ / 未接続）。
+
+### 1. サーバーモード（`serve.py`）
 
 ```bash
 python fit-lab/serve.py --root <data-root>
 ```
 
-Then open <http://127.0.0.1:8765/>.
+その後 <http://127.0.0.1:8765/> を開く。
 
-| option | default | meaning |
+| オプション | 既定 | 意味 |
 |---|---|---|
-| `--root` | `$FIT_LAB_ROOT` | data root (folder of campaigns), relative to the current directory; required when the variable is not set |
-| `--port` | `8765` | port |
-| `--host` | `127.0.0.1` | bind address |
+| `--root` | `$FIT_LAB_ROOT` | データのルート（campaign を並べたフォルダ）。今のフォルダからの相対パス。環境変数が無いときは必須 |
+| `--port` | `8765` | ポート |
+| `--host` | `127.0.0.1` | 待ち受けのアドレス |
 
-Try it with the bundled sample (fake data):
+同梱のサンプル（架空のデータ）で試す:
 
 ```bash
 python fit-lab/serve.py --root fit-lab/sample --port 8766
 ```
 
-Saving from the UI rewrites the sample files; use `git checkout fit-lab/sample` to reset.
+画面から保存するとサンプルのファイルが書き換わる。元に戻すには `git checkout fit-lab/sample`。
 
-### 2. Folder mode (static page, no server)
+### 2. フォルダモード（静的なページ、サーバーなし）
 
-`index.html`, `app.js` and `style.css` are a plain static site: they can be served by any static host (or `python -m http.server`) with no backend. In that case the start page offers **フォルダを開く…**, which uses the [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API) (Chrome / Edge, secure context: `https://` or `localhost`). Pick either
+`index.html`、`app.js`、`style.css` はただの静的なサイトで、バックエンド無しで任意の静的ホスト（または `python -m http.server`）から配れる。その場合、最初のページに **フォルダを開く…** が出る。これは [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API)（Chrome / Edge、安全な文脈: `https://` か `localhost`）を使う。選べるのは次のどちらか。
 
-- a data root (a folder whose sub-folders each contain `campaign.json`), or
-- a single campaign folder.
+- データのルート（各サブフォルダに `campaign.json` があるフォルダ）
+- 1 つの campaign のフォルダ
 
-Campaigns, images and saves then go directly to that folder on the user's disk. Saving copies the previous `campaign.json` to `campaign.json.bak` first, then writes the new file (the browser writes to a temporary file and swaps it in on close). The last folder is remembered in IndexedDB of that browser and can be re-opened with one click (the browser asks for permission again). Folder mode is also available from the start page in server mode. Firefox / Safari do not support the API; use server mode there.
+campaign・画像・保存は、そのままユーザーのディスクのそのフォルダに入る。保存すると、まず前の `campaign.json` を `campaign.json.bak` にコピーし、それから新しいファイルを書く（ブラウザは一時ファイルに書き、閉じるときに差し替える）。最後のフォルダはそのブラウザの IndexedDB に覚え、1 クリックで開き直せる（ブラウザが改めて許可を求める）。フォルダモードは、サーバーモードの最初のページからも使える。Firefox / Safari はこの API に対応していないので、サーバーモードを使う。
 
-## Using the app
+## アプリの使い方
 
-UI labels are Japanese; the data keeps English keys (`kind: "hole"` → 穴, `method: "caliper"` → ノギス, `by: "user"` → 本人).
+画面の文言は日本語。データのキーは英語のまま（`kind: "hole"` → 穴、`method: "caliper"` → ノギス、`by: "user"` → 本人）。
 
-- **Campaigns** — one card per campaign with measured / total cells.
-- **項目 (Items)** — one row per item, one column group per variant: `CAD | 実測 | Δ` where **Δ = measured − CAD**. Δ is coloured blue (smaller than CAD) / red (larger), darker with magnitude (±0.02 neutral, then 0.05 / 0.1 / 0.2 steps). Items whose CAD is shared by all variants (`"*"`) show one group spanning the variant columns.
-  - **Measured cells are inputs.** Focusing an empty cell pre-fills the CAD value; ↑ / ↓ (or the mouse wheel while the cell is focused) step it by the toolbar's 刻み (0.01 / 0.05 / 0.1, remembered; Shift = ×10). Typing works too. **Enter** records a new measurement (today, ノギス, by `user`, not provisional) and moves down the same column, **Tab** / Shift+Tab record and move to the next / previous cell, **Esc** cancels. Nothing is recorded unless the value was changed. Values show 2 decimals.
-  - Double-click a measured cell for its history (edit date / method / note / provisional, delete entries). The cell shows the latest value (by date, then insertion order).
-  - Provisional values (`provisional: true`, e.g. read from a voice memo, not yet confirmed) are shown in yellow italics, with a tooltip and a legend entry.
-  - Click a row to highlight its callout in the image panel (switching image if needed); click a callout to select its row.
-  - Layout: drag the bar between the table and the image panel (default image panel ≈ 33 %), drag header borders to resize columns; double-click either to reset. Widths are remembered per browser (localStorage). Below 1000 px the image panel stacks under the table. Images are scaled to fit the panel.
-  - The variants and their parameters are in a collapsible バリアント section below the table and on the summary tab.
-  - **保存** (or Ctrl+S) writes the whole campaign. The status label shows unsaved changes; leaving the page with unsaved edits asks first.
-  - **CSV 出力** — long format, one row per measurement (plus empty rows for unmeasured cells), UTF-8 with BOM for Excel.
-- **集計・バリアント (Summary)** — n / mean / sd / min / max of Δ by kind, broken down by variant, plus the variant parameter table and the campaign `notes`. Uses the latest measurement per item × variant; a toggle excludes provisional values.
-- **知見 (Knowledge base, `#/summary`)** — the same statistics over **all** campaigns, grouped by material + kind, with per-campaign rows. **全件 CSV 出力** dumps every campaign.
-- Theme: follows the OS by default; the top-right button cycles 自動 / ライト / ダーク. All text colours meet WCAG AA (≥ 4.5:1) in both themes.
+- **campaign の一覧** — campaign ごとに 1 枚のカード。測定済みのセル数 / 全セル数
+- **項目** — 項目ごとに 1 行、variant ごとに 1 組の列: `CAD | 実測 | Δ`。**Δ = 実測 − CAD**。Δ は青（CAD より小さい）/ 赤（大きい）で色を付け、差が大きいほど濃い（±0.02 は無色、その先は 0.05 / 0.1 / 0.2 の段階）。CAD がすべての variant で共通（`"*"`）の項目は、variant の列をまたぐ 1 組で出す
+  - **実測のセルは入力欄。** 空のセルにフォーカスすると CAD の値が入る。↑ / ↓（またはセルにフォーカスがある間のマウスホイール）で、ツールバーの刻み（0.01 / 0.05 / 0.1、覚えておく。Shift で ×10）ずつ動く。直接入力もできる。**Enter** で新しい測定値を記録し（今日、ノギス、`user`、仮ではない）、同じ列の下へ移る。**Tab** / Shift+Tab で記録して次 / 前のセルへ移る。**Esc** で取り消す。値を変えなければ何も記録しない。値は小数 2 桁で出す
+  - 実測のセルをダブルクリックすると履歴が出る（日付・方法・メモ・仮の編集、記録の削除）。セルには最新の値（日付の順、同じ日なら追加した順）を出す
+  - 仮の値（`provisional: true`。例: 音声メモから読んだ、まだ確かめていない値）は黄色の斜体で出し、ツールチップと凡例を付ける
+  - 行をクリックすると、画像の欄でその注記が強調される（必要なら画像も切り替わる）。注記をクリックすると、その行が選ばれる
+  - 配置: 表と画像の欄の間のバーをドラッグ（画像の欄の既定 ≈ 33 %）、見出しの境目をドラッグで列の幅を変える。どちらもダブルクリックで元に戻す。幅はブラウザごとに覚える（localStorage）。1000 px より狭いと、画像の欄は表の下に並ぶ。画像は欄に収まるように縮める
+  - variant とその値は、表の下の折りたためるバリアントの欄と、集計のタブにある
+  - **保存**（または Ctrl+S）で campaign 全体を書く。未保存の変更は状態の表示に出る。未保存の編集があるままページを離れようとすると、先に確認する
+  - **CSV 出力** — 縦長の形式で、測定値ごとに 1 行（未測定のセルは空の行）。Excel 用に BOM 付きの UTF-8
+- **集計・バリアント** — 種類（kind）ごとの Δ の n / 平均 / 標準偏差 / 最小 / 最大を variant 別に出し、variant の値の表と campaign の `notes` も出す。項目 × variant ごとの最新の測定値を使う。切り替えで仮の値を除ける
+- **知見（`#/summary`）** — 同じ統計を **すべての** campaign について、材料 + 種類でまとめ、campaign ごとの行も出す。**全件 CSV 出力** ですべての campaign を書き出す
+- テーマ: 既定は OS に合わせる。右上のボタンで 自動 / ライト / ダーク を切り替える。文字の色はどちらのテーマでも WCAG AA（≥ 4.5:1）を満たす
 
-## Voice entry (hands-free)
+## 音声入力（手を使わない入力）
 
-Press **音声入力** in the toolbar and read values aloud while measuring; no mouse or keyboard needed. It uses the browser's Web Speech API (`SpeechRecognition`, `ja-JP`, continuous) and works in **Chrome / Edge** on `localhost` or `https` (the microphone needs a secure context). Other browsers show a message instead.
+ツールバーの **音声入力** を押し、測りながら値を声で読む。マウスもキーボードも要らない。ブラウザの Web Speech API（`SpeechRecognition`、`ja-JP`、連続）を使い、`localhost` か `https` の **Chrome / Edge** で動く（マイクには安全な文脈が要る）。ほかのブラウザでは、代わりに案内を出す。
 
-> **Privacy:** Chrome and Edge send the microphone audio to the browser vendor's cloud speech service (Google / Microsoft) for recognition. Do not use voice entry for anything that must not leave the machine.
+> **プライバシー:** Chrome と Edge は、認識のためにマイクの音声をブラウザの提供元のクラウドの音声認識（Google / Microsoft）へ送る。PC の外に出してはいけない内容には音声入力を使わない。
 
-Context: the **current variant** (toolbar バリアント, or by voice) and a **cursor row** (highlighted with a blue bar). Items whose CAD is shared (`"*"`) are always recorded as `*`.
+文脈: **今の variant**（ツールバーのバリアント、または声で切り替え）と **カーソルの行**（青いバーで強調）。CAD が共通（`"*"`）の項目は、いつも `*` として記録する。
 
-| say | action |
+| 言うこと | 動作 |
 |---|---|
-| 「1番 8.45」「いちばん はってんよんご」「3番 2.3」 | record item 1 (3) for the current variant; the cursor moves to the next item |
-| 「8.45」「はちてんよんご」 | record the cursor row, then move the cursor to the next item |
-| 「5番」 | move the cursor to item 5 |
-| 「次」「前」 | move the cursor |
-| 「ブイ1」「V2」「バリアント3」「共通」 | switch the current variant |
-| 「はい」「OK」 | accept a value waiting for confirmation |
-| 「取り消し」「戻して」 | undo the last voice entry (or drop a pending confirmation) |
-| 「保存」 | save now |
+| 「1番 8.45」「いちばん はってんよんご」「3番 2.3」 | 今の variant で項目 1（3）を記録。カーソルは次の項目へ |
+| 「8.45」「はちてんよんご」 | カーソルの行を記録し、カーソルを次の項目へ |
+| 「5番」 | カーソルを項目 5 へ |
+| 「次」「前」 | カーソルの移動 |
+| 「ブイ1」「V2」「バリアント3」「共通」 | 今の variant の切り替え |
+| 「はい」「OK」 | 確認待ちの値の受け入れ |
+| 「取り消し」「戻して」 | 最後の音声入力の取り消し（または確認待ちの破棄） |
+| 「保存」 | すぐに保存 |
 
-- Numbers may be digits (also full-width), kanji (八点四五) or kana (はってんよんご, じゅうに, れい / ゼロ); 点 / てん is the decimal point. Fillers (えーと, ミリ, は / の) are ignored.
-- **Safety:** a value is applied only when |value − CAD| ≤ max(1.0 mm, 15 % of CAD). Otherwise (or when the item has no CAD) the live bar shows 「確認: 1番 84.50 ?」; say 「はい」 to record it or say a new value to replace it.
-- Feedback: a fixed-height live bar shows what is being heard; the changed row flashes; the voice log (time, raw transcript, action) lists every entry with a 取消 button for per-entry undo; 読み上げ reads the recorded value back via `speechSynthesis` (off by default; recognition ignores the read-back).
-- While voice entry is on, changes are saved automatically ~2 s after the last edit. Voice entries are stored with `note: "音声入力"`.
-- **Browsers:** recognition only works in **Google Chrome** (Google's service) and **Microsoft Edge** (Microsoft's service). Other Chromium browsers (Vivaldi, Brave, Opera, …) expose `webkitSpeechRecognition` but cannot reach a speech service: the microphone indicator turns on, yet no text ever arrives (sessions end at once, or fail with `network`). Firefox and Safari on desktop have no usable engine. Open fit-lab in Chrome or Edge for voice entry.
-- **音声の診断** (collapsible panel under the toolbar) logs every recognition event with a timestamp (start, audiostart, soundstart, speechstart, interim / final results, nomatch, error, end, restarts), shows the engine (`SpeechRecognition` / `webkitSpeechRecognition`), the detected browser, the input device and a live microphone level meter (`getUserMedia` + `AnalyserNode`; nothing is played back). Errors such as `network`, `not-allowed`, `service-not-allowed`, `language-not-supported`, `audio-capture` are explained in plain Japanese. **診断をコピー** copies the whole log for a bug report.
-- Web Speech always uses the OS / browser default microphone; a page cannot choose the device. Change it in Windows Settings > System > Sound > Input, or in the browser's site settings for the microphone.
-- Restart policy: after a normal session end the recogniser restarts after 300 ms; if sessions end within 2 s without hearing anything, restarts back off (1, 2, 4, 8 s) and voice entry stops after 5 in a row with an explanation. `not-allowed`, `service-not-allowed`, `language-not-supported`, `audio-capture` and a third `network` error stop it at once. `start()` is never called while a session is running.
-- The parser is `voice-parse.js` (no DOM). Unit tests: `node --test fit-lab/voice-parse.test.js`. The microphone path itself can only be tested by a person.
+- 数は、数字（全角も）、漢数字（八点四五）、かな（はってんよんご、じゅうに、れい / ゼロ）のどれでもよい。点 / てん が小数点。つなぎの言葉（えーと、ミリ、は / の）は無視する
+- **安全:** 値を入れるのは |値 − CAD| ≤ max(1.0 mm, CAD の 15 %) のときだけ。それ以外（または項目に CAD が無いとき）は、表示のバーに「確認: 1番 84.50 ?」と出す。「はい」と言うと記録し、新しい値を言うと置き換える
+- 知らせ: 高さが一定の表示のバーに、聞き取っている内容を出す。変わった行が光る。音声のログ（時刻、聞き取った文そのまま、動作）にすべての入力を並べ、1 件ずつ取り消せる取消のボタンを付ける。読み上げは記録した値を `speechSynthesis` で読み返す（既定は OFF。認識は読み返しの声を無視する）
+- 音声入力が ON の間は、最後の編集から ~2 秒で自動で保存する。音声の入力は `note: "音声入力"` 付きで保存する
+- **ブラウザ:** 認識が動くのは **Google Chrome**（Google の音声認識）と **Microsoft Edge**（Microsoft の音声認識）だけ。ほかの Chromium 系のブラウザ（Vivaldi、Brave、Opera など）は `webkitSpeechRecognition` を持つが、音声認識の先につながらない。マイクの表示は点くが、文字はいつまでも届かない（すぐに終わるか、`network` で失敗する）。デスクトップの Firefox と Safari には使える認識が無い。音声入力には、fit-lab を Chrome か Edge で開く
+- **音声の診断**（ツールバーの下の折りたためる欄）は、認識のすべての出来事を時刻付きで残す（start、audiostart、soundstart、speechstart、途中 / 確定の結果、nomatch、error、end、再起動）。使っている仕組み（`SpeechRecognition` / `webkitSpeechRecognition`）、判定したブラウザ、入力の機器、マイクの音量の表示（`getUserMedia` + `AnalyserNode`。何も再生しない）も出す。`network`、`not-allowed`、`service-not-allowed`、`language-not-supported`、`audio-capture` などのエラーは平易な日本語で説明する。**診断をコピー** でログ全体を不具合の報告用にコピーする
+- Web Speech はいつも OS / ブラウザの既定のマイクを使い、ページからは機器を選べない。変えるときは、Windows の 設定 > システム > サウンド > 入力、またはブラウザのサイトの設定のマイクで変える
+- 再起動の決まり: 普通にセッションが終わると、300 ms 後に認識を再起動する。何も聞かないまま 2 秒以内に終わることが続くと、再起動の間隔を延ばし（1、2、4、8 秒）、5 回続くと説明を出して音声入力を止める。`not-allowed`、`service-not-allowed`、`language-not-supported`、`audio-capture` と 3 回目の `network` のエラーでは、すぐに止める。セッションが動いている間に `start()` は呼ばない
+- 読み取りの処理は `voice-parse.js`（DOM を使わない）。単体の試験: `node --test fit-lab/voice-parse.test.js`。マイクの経路そのものは、人にしか確かめられない
 
-## Data layout
+## データの置き方
 
 ```
 <data-root>/
@@ -99,9 +101,9 @@ Context: the **current variant** (toolbar バリアント, or by voice) and a **
       img01.png
 ```
 
-`<campaign-id>` must match `^[A-Za-z0-9][A-Za-z0-9._-]*$` and equal the `id` field.
+`<campaign-id>` は `^[A-Za-z0-9][A-Za-z0-9._-]*$` に合い、`id` の値と同じにする。
 
-## Data contract — `campaign.json` (`fit-lab/1`)
+## データの取り決め — `campaign.json`（`fit-lab/1`）
 
 ```jsonc
 {
@@ -159,36 +161,36 @@ Context: the **current variant** (toolbar バリアント, or by voice) and a **
 }
 ```
 
-Rules:
+決まり:
 
-- **Δ = measured − CAD**, in `unit`. For a hole, negative Δ means it printed smaller; for a boss, positive means fatter.
-- Items with `cad: {"*": v}` are measured once (`variant: "*"`), not per variant.
-- `measurements` is an append-only history; the latest per variant (by `date`, ties by array order) is the current value.
-- Unknown extra fields are preserved on save (the app round-trips the whole object).
-- The server writes pretty-printed UTF-8 (`indent=2`, non-ASCII kept), atomically, after copying the previous file to `campaign.json.bak`.
+- **Δ = 実測 − CAD**、単位は `unit`。穴なら負の Δ は小さく出たこと、ボスなら正の Δ は太く出たことを表す
+- `cad: {"*": v}` の項目は、variant ごとではなく 1 回だけ測る（`variant: "*"`）
+- `measurements` は追記だけの履歴。variant ごとの最新（`date` の順、同じなら配列の順）が今の値
+- 知らない追加のフィールドは、保存しても残る（アプリはオブジェクト全体をそのまま書き戻す）
+- サーバーは、前のファイルを `campaign.json.bak` にコピーした後、整形した UTF-8（`indent=2`、ASCII 以外もそのまま）をアトミックに書く
 
 ## HTTP API
 
-| method | path | |
+| メソッド | パス | |
 |---|---|---|
 | GET | `/api/campaigns` | `{root, campaigns: [{id, title, material, process, vendor, ordered, received, variants, items, cells, measured}]}` |
 | GET | `/api/campaigns/<id>` | `campaign.json` |
-| PUT | `/api/campaigns/<id>` | replace `campaign.json`; body must have `schema: "fit-lab/1"`, `id` = `<id>`, `items` list. Creates the folder if missing. |
-| GET | `/data/<id>/<path>` | files inside a campaign folder (images) |
+| PUT | `/api/campaigns/<id>` | `campaign.json` の置き換え。本文には `schema: "fit-lab/1"`、`id` = `<id>`、`items` の配列が要る。フォルダが無ければ作る |
+| GET | `/data/<id>/<path>` | campaign のフォルダの中のファイル（画像） |
 
-## For AI agents: adding a campaign
+## AI エージェント向け: campaign の追加
 
-1. Create `<data-root>/<campaign-id>/` (the data root is the folder passed to `serve.py --root`, kept in the project's workspace, not in this repo). Use a descriptive, lowercase id such as `<product>-<material>-lot<N>`.
-2. Put the screenshots in `images/` as PNG. Record each in `images[]` with its real pixel `width` / `height`.
-3. Write `campaign.json` exactly per the contract above: one item per measured dimension, CAD values per variant (or `"*"`), `kind` from the fixed list, `mate` when a mating part defines the fit. Use the same `material` string as earlier lots of the same material so the knowledge base groups them.
-4. Annotations: give coordinates as fractions of the image size (pixel x / width, pixel y / height). For a dimension, the two points are the ends of the measured span; for a point feature, the point itself. Set `label_pos` when the default badge position would cover something.
-5. Leave `measurements` empty (`[]`) for values the human will measure; append entries (never rewrite old ones) when recording results reported in chat.
-6. Validate: `python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))" <path>/campaign.json`, then open the campaign in the app and check every callout lands on its feature.
-7. When the server is running you may instead `PUT /api/campaigns/<id>` with the JSON; it validates the schema/id and keeps a `.bak`.
+1. `<data-root>/<campaign-id>/` を作る（データのルートは `serve.py --root` に渡すフォルダで、この repo ではなくプロジェクトの workspace に置く）。id は `<product>-<material>-lot<N>` のような、中身が分かる小文字の名前にする
+2. 画面の画像を PNG で `images/` に置く。それぞれを `images[]` に、実際のピクセルの `width` / `height` 付きで書く
+3. `campaign.json` を上の取り決めのとおりに書く。測る寸法ごとに 1 項目、CAD の値は variant ごと（または `"*"`）、`kind` は決まった一覧から、相手の部品ではめあいが決まるときは `mate`。同じ材料の前のロットと同じ `material` の文字列を使い、知見でまとまるようにする
+4. 注記: 座標は画像の大きさに対する割合で書く（ピクセルの x / width、ピクセルの y / height）。寸法なら 2 点は測る区間の両端、点の形状ならその点。既定の番号の位置が何かを隠すときは `label_pos` を付ける
+5. 人が測る値の `measurements` は空（`[]`）にしておく。チャットで報告された結果を記録するときは追記する（古い記録は書き換えない）
+6. 確かめる: `python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))" <path>/campaign.json` の後、アプリで campaign を開き、すべての注記が対象の形状に乗っているかを見る
+7. サーバーが動いているときは、代わりに JSON を `PUT /api/campaigns/<id>` で送ってもよい。schema と id を確かめ、`.bak` を残す
 
-## Notes for agents
+## エージェント向けの注意
 
-- Ask which data root to use (or read it from the project's notes); never write campaigns into this repo except the bundled `sample/`.
-- Start the server where the person can see it (a terminal tab) and open the URL in the default browser.
-- `PUT /api/campaigns/<id>` replaces the whole file: read it first, append measurements, write it back. The server keeps one `.bak`.
-- Voice entry sends microphone audio to the browser vendor's cloud (see Privacy above).
+- どのデータのルートを使うかを聞く（またはプロジェクトのメモから読む）。同梱の `sample/` を除き、この repo に campaign を書かない
+- サーバーは人が見られる所（ターミナルのタブ）で起動し、URL を既定のブラウザで開く
+- `PUT /api/campaigns/<id>` はファイル全体を置き換える。先に読み、測定値を追記して、書き戻す。サーバーが残す `.bak` は 1 つだけ
+- 音声入力はマイクの音声をブラウザの提供元のクラウドへ送る（上のプライバシーを参照）

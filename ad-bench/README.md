@@ -1,27 +1,20 @@
-# ad-bench — Analog Discovery bench helper
+# ad-bench — Analog Discovery の計測の補助
 
-Python (ctypes) driver for the Digilent WaveForms SDK (`dwf.dll`; written
-against SDK 3.25.1 and an Analog Discovery Studio). The person wires the
-probes; the agent runs the instrument, optionally sends one line to the device
-under test over TCP when a record starts, and collects CSV / PNG /
-`summary.json` under `<data>/runs/<timestamp>-<command>/`.
+[English](README.en.md)
 
-Close the WaveForms GUI first: only one program can open the device.
+Digilent WaveForms SDK（`dwf.dll`。SDK 3.25.1 と Analog Discovery Studio で作った）の Python（ctypes）のドライバー。プローブは人がつなぎ、計測器はエージェントが動かす。記録の開始時に、測る機器へ TCP で 1 行を送ることもできる（任意）。CSV / PNG / `summary.json` を `<data>/runs/<timestamp>-<command>/` に集める。
 
-## Requirements
+先に WaveForms の画面を閉じる。機器を開けるのは 1 つのプログラムだけ。
 
-- Windows, Python 3.9+.
-- **WaveForms (Digilent) installed separately**, with its SDK: `dwf.dll` must be
-  loadable and the SDK's Python samples (`dwfconstants.py`) are taken from
-  `C:\Program Files\Digilent\WaveFormsSDK\samples\py`. Nothing from Digilent
-  is included in this repo.
-- `matplotlib` (PNG plots); `Pillow` and KiCad 10 for `boardmap.py` only.
+## 必要なもの
 
-## Data folder
+- Windows、Python 3.9+
+- **WaveForms（Digilent）を別に入れる**（SDK 付き）。`dwf.dll` が読み込めること。SDK の Python のサンプル（`dwfconstants.py`）は `C:\Program Files\Digilent\WaveFormsSDK\samples\py` から読む。Digilent のものはこの repo に何も入れていない
+- `matplotlib`（PNG のグラフ）。`Pillow` と KiCad 10 は `boardmap.py` だけに要る
 
-Project data is not kept in this repo. Every script reads and writes one data
-folder, given by `--data <folder>`, else `$AD_BENCH_DATA`, else the current
-directory:
+## データのフォルダ
+
+プロジェクトのデータはこの repo に置かない。どのスクリプトも 1 つのデータのフォルダを読み書きする。フォルダは `--data <folder>`、無ければ `$AD_BENCH_DATA`、それも無ければ今のフォルダ。
 
 ```
 <data>/
@@ -31,97 +24,61 @@ directory:
   runs/marks.jsonl                                 # adscope voice marks
 ```
 
-Keep that folder in the workspace of the project being measured.
+このフォルダは、測るプロジェクトの workspace に置く。
 
-## Commands and wiring (Analog Discovery Studio breadboard)
+## コマンドと配線（Analog Discovery Studio のブレッドボード）
 
-| Command | Wiring | What it gives |
+| コマンド | 配線 | 得られるもの |
 |---|---|---|
-| `python adbench.py devices` | USB only | device list |
-| `python adbench.py monitor --ch1-name VSYS --ch2-name 3V3` | 1+ / 2+ on the rails, 1− / 2− → board GND | live DC readout (mean, min..max) every 0.3 s, logged to `monitor.csv` |
-| `python adbench.py selftest` | W1 → 1+, 1− → GND | checks the record path (expects ~1.0 Vpp) |
-| `python adbench.py impedance --ref 10` | W1 and 1+ → motor lead A; motor lead B → 2+ and one end of a 10 Ω resistor; resistor other end → GND; 1−, 2− → GND. Motor unplugged from the board, rotor held still | Rs, Xs, Ls over 100 Hz–100 kHz; Ls median over 1–20 kHz |
-| `python adbench.py record --ch2-shunt 0.05 --tcp <host>:<port> --tcp-line '<line>'` | 1+ → the supply rail, 1− → board GND; a 0.05 Ω shunt in the battery − lead, 2+ / 2− across it; board GND = scope GND | rail min / max and battery current (peak, max 10 ms average) while the device runs whatever the line starts |
+| `python adbench.py devices` | USB だけ | 機器の一覧 |
+| `python adbench.py monitor --ch1-name VSYS --ch2-name 3V3` | 1+ / 2+ を電源の線に、1− / 2− → 基板の GND | 0.3 秒ごとの直流の値（平均、最小..最大）の表示。`monitor.csv` に残す |
+| `python adbench.py selftest` | W1 → 1+、1− → GND | 記録の経路の確認（~1.0 Vpp になるはず） |
+| `python adbench.py impedance --ref 10` | W1 と 1+ → モーターの線 A。モーターの線 B → 2+ と 10 Ω の抵抗の片方。抵抗のもう片方 → GND。1−、2− → GND。モーターは基板から外し、回転子は動かないように押さえる | 100 Hz–100 kHz の Rs、Xs、Ls。1–20 kHz の Ls の中央値 |
+| `python adbench.py record --ch2-shunt 0.05 --tcp <host>:<port> --tcp-line '<line>'` | 1+ → 電源の線、1− → 基板の GND。電池の − の線に 0.05 Ω のシャント抵抗を入れ、その両端に 2+ / 2−。基板の GND = オシロスコープの GND | 送った行で機器が動いている間の、電源の線の最小 / 最大と電池の電流（ピーク、10 ms 平均の最大） |
 
-Defaults for `record`: 200 kS/s per channel, 3 s, CH1 span 5 V centred on 4 V
-(covers 1.5–6.5 V), CH2 span 0.5 V. Raise `--ch1-range` / `--ch1-offset` if a
-spike can exceed the span. `--tcp-line` is sent to `--tcp HOST:PORT` (a
-newline is added) `--send-delay` (0.3 s) after recording starts; the reply (up
-to a newline or 1.5 s) goes into `summary.json` `events`. For a device that
-takes one JSON line, `--tcp-kv "cmd=ping n=1"` builds `{"cmd": "ping", "n": 1}`
-for you (numbers become numbers), which avoids JSON quoting in cmd / PowerShell.
-Nothing is sent unless `--tcp` and one of `--tcp-line` / `--tcp-kv` are given.
+`record` の既定: 1 チャンネルあたり 200 kS/s、3 秒、CH1 の幅 5 V で中心 4 V（1.5–6.5 V を覆う）、CH2 の幅 0.5 V。スパイクが幅を超えうるときは `--ch1-range` / `--ch1-offset` を上げる。`--tcp-line` は、記録の開始から `--send-delay`（0.3 秒）後に `--tcp HOST:PORT` へ送る（改行を足す）。返事（改行まで、または 1.5 秒まで）は `summary.json` の `events` に入る。1 行の JSON を受ける機器には、`--tcp-kv "cmd=ping n=1"` で `{"cmd": "ping", "n": 1}` を組み立てる（数は数になる）。cmd / PowerShell での JSON の引用符の扱いを避けられる。`--tcp` と、`--tcp-line` / `--tcp-kv` のどちらかを渡さない限り、何も送らない。
 
-## Notes
+## 注意
 
-- Impedance mode 0 = W1-C1-DUT-C2-R-GND (SDK `FDwfAnalogImpedanceModeSet`).
-  Keep `--amp` small (0.1 V default) so the motor does not turn; back-EMF would
-  distort the low-frequency points.
-- Shunt current is CH2 volts / `--ch2-shunt`. Battery protectors typically
-  trip on an over-current lasting around 10 ms, so `max_10ms_avg` (the highest
-  10 ms moving average) is the number to compare against their limit.
+- インピーダンスのモード 0 = W1-C1-DUT-C2-R-GND（SDK の `FDwfAnalogImpedanceModeSet`）。モーターが回らないように `--amp` は小さく保つ（既定 0.1 V）。逆起電力で低い周波数の点がずれる
+- シャントの電流は CH2 の電圧 / `--ch2-shunt`。電池の保護回路は、おおむね 10 ms ほど続く過電流で切れることが多いので、その上限と比べる値は `max_10ms_avg`（10 ms の移動平均の最大）
 
-## adscope — scope page + HTTP API
+## adscope — オシロスコープのページと HTTP API
 
-`adscope.py` is a small oscilloscope for board inspection (power rails, shunt
-current, power-on behaviour). It owns the device and serves a page and a JSON
-API on `127.0.0.1`, so the person watches the page while the agent reads the
-same data over HTTP. Input only: W1/W2 are never driven (they are stopped on
-connect).
+`adscope.py` は、基板を調べるための小さなオシロスコープ（電源の線、シャントの電流、電源を入れたときの動き）。機器を開いたまま、`127.0.0.1` でページと JSON の API を出す。人はページを見て、エージェントは同じデータを HTTP で読む。入力だけで、W1/W2 は出力しない（接続時に止める）。
 
 ```
 python adscope.py --data <folder>               # opens http://127.0.0.1:8195/ in the default browser
 python adscope.py --data <folder> --port 8195 --no-open
 ```
 
-Stop with Ctrl-C or `curl -X POST http://127.0.0.1:8195/api/quit`; both close
-the device. **While adscope runs, `adbench.py` commands cannot open the device**
-(only one program can); the WaveForms GUI must stay closed too. If the device is
-missing or busy, the page shows the reason and a 再接続 button (`/api/connect`);
-it is never retried automatically.
+終了は Ctrl-C か `curl -X POST http://127.0.0.1:8195/api/quit`。どちらも機器を閉じる。**adscope が動いている間は、`adbench.py` のコマンドは機器を開けない**（開けるのは 1 つのプログラムだけ）。WaveForms の画面も閉じたままにする。機器が無い・使用中のときは、ページに理由と再接続のボタン（`/api/connect`）を出す。自動では再試行しない。
 
-### Screen
+### 画面
 
-- 10 × 8 div grid, CH1 yellow, CH2 cyan. Left-edge markers = 0 V (or 0 A) of
-  each channel; the orange mark at the top = trigger time; the dashed line and
-  right-edge marker = trigger level.
-- Modes: **Auto** (free-runs after 0.25 s without a trigger), **Normal**,
-  **Single** (one capture, then Stop), **Roll** (scan-shift, scrolling window
-  1–30 s, no trigger; for watching a rail while pressing the power button).
-- Timebase 1 µs/div … 1 s/div. The sample rate is set so the 10 div hold up to
-  the device buffer (8192 samples on the AD Studio, max 100 MS/s).
-- Per channel: on/off, name, V/div (0.01–5), 中心 (V at the screen centre =
-  SDK channel offset), シャント Ω (> 0 shows amps = V / R). The SDK picks the
-  hardware range covering 8 div: the AD Studio has a ~5.5 V span and a ~60 V
-  span, so at ≤ 0.5 V/div only centre ± 2.75 V is measured. **範囲外** in the
-  measurement box means the input hit the range edge (raise V/div or move the
-  centre). 入力安定待ち… is shown for 2 s after a range / offset change (SDK:
-  the input offset needs ~2 s to settle).
-- Measurements over the displayed record (full resolution, not the decimated
-  trace): mean, min, max, p-p, RMS.
-- 現在の波形を保存 writes the current record; Record N 秒 runs an
-  `acqmodeRecord` capture (adbench `record()`, includes its 2 s settle wait) at
-  the chosen rate, saves it, and returns to the live mode. Both go to
-  `<data>/runs/<timestamp>-scope/` as `frame|record.csv`, `.png`, `summary.json`.
-- Names and settings are kept in the browser (localStorage) and re-applied
-  when the page is opened (except the mode).
+- 10 × 8 div の格子、CH1 は黄、CH2 は水色。左端の印 = 各チャンネルの 0 V（または 0 A）。上の橙の印 = トリガーの時刻。破線と右端の印 = トリガーのレベル
+- モード: **Auto**（トリガーが無いまま 0.25 秒たつと自走）、**Normal**、**Single**（1 回取り込んで Stop）、**Roll**（スキャンしながら流す。1–30 秒の窓が流れる。トリガー無し。電源のボタンを押しながら電源の線を見るとき用）
+- 時間軸 1 µs/div … 1 s/div。サンプリングの速さは、10 div が機器のバッファ（AD Studio は 8192 サンプル、最大 100 MS/s）に収まるように決める
+- チャンネルごと: ON/OFF、名前、V/div（0.01–5）、中心（画面の中心の電圧 = SDK のチャンネルのオフセット）、シャント Ω（> 0 で電流 = V / R を出す）。SDK は 8 div を覆うハードウェアの範囲を選ぶ。AD Studio の範囲は ~5.5 V 幅と ~60 V 幅の 2 つなので、≤ 0.5 V/div では中心 ± 2.75 V だけを測る。測定の欄の **範囲外** は、入力が範囲の端に当たったことを表す（V/div を上げるか、中心を動かす）。範囲・オフセットを変えた後の 2 秒は 入力安定待ち… を出す（SDK: 入力のオフセットが落ち着くのに ~2 秒かかる）
+- 測定は、表示している記録全体について行う（間引いた線ではなく元の分解能）: 平均、最小、最大、p-p、RMS
+- 現在の波形を保存 で今の記録を書く。Record N 秒 は、選んだ速さで `acqmodeRecord` の取り込み（adbench の `record()`。その 2 秒の安定待ちを含む）を行い、保存して、ライブのモードに戻る。どちらも `<data>/runs/<timestamp>-scope/` に `frame|record.csv`、`.png`、`summary.json` として書く
+- 名前と設定はブラウザ（localStorage）に残し、ページを開いたときに当て直す（モードは除く）
 
 ### HTTP API
 
-| Method / path | Body | Returns |
+| メソッド / パス | 本文 | 返すもの |
 |---|---|---|
-| `GET /api/status` | | device (name, SN, connected, error), mode, running, state, settings, applied (rate, samples, hardware range/offset) |
-| `GET /api/frame` | | settings + per channel ≤ 2000 points (min/max decimated, display units) + measurements; `x0`/`x1` = time of the first/last point (s, 0 = trigger, Roll: 0 = newest); `screen` = visible time span; `trig` = `trig` / `auto` / `roll` |
-| `GET /api/measure` | | measurements only, with channel names and units |
-| `POST /api/config` | partial settings | merged settings (400 on bad values) |
+| `GET /api/status` | | 機器（名前、SN、接続、エラー）、mode、running、state、settings、applied（速さ、サンプル数、ハードウェアの範囲/オフセット） |
+| `GET /api/frame` | | settings + チャンネルごとに ≤ 2000 点（min/max で間引き、表示の単位）+ 測定値。`x0`/`x1` = 最初/最後の点の時刻（秒、0 = トリガー、Roll では 0 = 最新）。`screen` = 見えている時間の幅。`trig` = `trig` / `auto` / `roll` |
+| `GET /api/measure` | | 測定値だけ。チャンネルの名前と単位付き |
+| `POST /api/config` | 設定の一部 | まとめた後の設定（値が不正なら 400） |
 | `POST /api/run` / `stop` / `single` | | `{"ok": true}` |
-| `POST /api/save` | | output dir + summary |
-| `POST /api/record` | `{"seconds": 2, "rate": 200000}` | blocks until done; output dir + summary (per channel min / max / mean in V, plus A and `max_10ms_avg` when `shunt_ohm` > 0) |
-| `POST /api/connect` | | retries opening the device |
-| `POST /api/quit` | | stops the server and closes the device |
+| `POST /api/save` | | 出力のフォルダ + 要約 |
+| `POST /api/record` | `{"seconds": 2, "rate": 200000}` | 終わるまで待つ。出力のフォルダ + 要約（チャンネルごとの最小 / 最大 / 平均の V、`shunt_ohm` > 0 なら A と `max_10ms_avg` も） |
+| `POST /api/connect` | | 機器を開き直す |
+| `POST /api/quit` | | サーバーを止め、機器を閉じる |
 
-Settings (all keys optional in `/api/config`; `channels` may be a list of two
-objects or `{"0": {...}, "1": {...}}`):
+設定（`/api/config` ではどのキーも省ける。`channels` は 2 つのオブジェクトの配列か `{"0": {...}, "1": {...}}`）:
 
 ```json
 {"mode": "auto|normal|single|roll", "tdiv": 0.001, "roll_s": 10,
@@ -129,79 +86,52 @@ objects or `{"0": {...}, "1": {...}}`):
  "trigger": {"source": 0, "edge": "rise|fall", "level": 2.0, "pre": 50}}
 ```
 
-`trigger.level` is in input volts; `pre` is the pre-trigger part of the screen (%).
+`trigger.level` は入力の電圧。`pre` は画面のうちトリガーより前の部分（%）。
 
-Voice marks and guided probing:
+声の印と手順の案内:
 
-| Method / path | Body | Returns |
+| メソッド / パス | 本文 | 返すもの |
 |---|---|---|
-| `POST /api/mark` | `{"text": "当てた", "kind": "voice", "step": "vsys"}` (`step` optional) | the mark: id, time, text, kind, step, and per channel `now` / mean / min / max at that moment; also appended to `runs/marks.jsonl` |
-| `GET /api/marks?since=<id>` | | marks after `id` |
-| `POST /api/say` | `{"text": "プローブを当ててください"}` | `{id, text, time}`; the page shows it as a banner and reads it aloud (読み上げ ON). `GET /api/frame` carries the latest as `say` |
-| `GET /api/procedures` | | `procedures/*.json`: name, title, board, steps, `problems` (validation errors in Japanese) |
-| `GET /api/procedures/<name>` | | the validated procedure with every probe resolved (`ref`, `pad`, `net`, `side`, `px`), the board `sides`, and `problems` |
-| `POST /api/procedure/state` | from the page | stores progress; a `result` / end is appended to `runs/<timestamp>-proc-<name>/results.jsonl` |
-| `GET /api/procedure/state` | | procedure, `step` (current id), `say`, `results` so far, `done`, `conclusion`, `run_dir`, `event` |
-| `GET /boards/<board>/<file>` | | `.jpg` / `.png` / `.json` under `boards/` only |
+| `POST /api/mark` | `{"text": "当てた", "kind": "voice", "step": "vsys"}`（`step` は省ける） | 印: id、時刻、text、kind、step と、その時点のチャンネルごとの `now` / 平均 / 最小 / 最大。`runs/marks.jsonl` にも追記する |
+| `GET /api/marks?since=<id>` | | `id` より後の印 |
+| `POST /api/say` | `{"text": "プローブを当ててください"}` | `{id, text, time}`。ページは帯で出し、読み上げる（読み上げ ON のとき）。`GET /api/frame` は最新のものを `say` で持つ |
+| `GET /api/procedures` | | `procedures/*.json`: name、title、board、steps、`problems`（確かめた結果のエラー、日本語） |
+| `GET /api/procedures/<name>` | | 確かめた手順。すべてのプローブを解決したもの（`ref`、`pad`、`net`、`side`、`px`）、基板の `sides`、`problems` |
+| `POST /api/procedure/state` | ページから | 進み具合を保存する。`result` / 終了は `runs/<timestamp>-proc-<name>/results.jsonl` に追記する |
+| `GET /api/procedure/state` | | procedure、`step`（今の id）、`say`、それまでの `results`、`done`、`conclusion`、`run_dir`、`event` |
+| `GET /boards/<board>/<file>` | | `boards/` の下の `.jpg` / `.png` / `.json` だけ |
 
 ## 手順モード（guided probing）
 
-For a person who holds the probe and the board with both hands: the page walks
-through a procedure, shows where to put the probe on the board picture, records
-the reading when the person says 「当てた」, judges it and moves on.
+両手でプローブと基板を持つ人のためのモード。ページが手順を順に進め、基板の絵の上でプローブを当てる所を示し、人が「当てた」と言うと値を記録し、判定して次へ進む。
 
-- Open the **手順** tab (the side panel widens: board picture + current step),
-  pick a procedure, press **開始**. Turn the mic on (🎤 音声).
-- Words: 「当てた」「OK」「次」「はい」 = record / yes; 「NG」「だめ」「いいえ」 = no
-  (only on yes/no steps); 「戻る」 = back one step (its result is discarded);
-  「やり直し」 = measure the last recorded step again with the readings now and
-  re-judge it. The buttons under the picture do the same.
-- The reading recorded is each channel's `now` (newest value) in the voice mark,
-  so the mark in `runs/marks.jsonl` carries the same numbers and the step id.
-- Rings: CH1 yellow, CH2 cyan, GND clip white, tester pink; the previous step's
-  points are drawn faintly. Click the picture to zoom 2× around the current
-  probe (stays zoomed across steps; click again to go back). The picture
-  switches to top / bottom by the step. Bottom = the board seen turned over.
-- 🔈 読み上げ reads each instruction and each agent prompt (`POST /api/say`) aloud
-  (ja-JP); OFF until pressed once, then kept in the browser. While it talks,
-  recognised speech is ignored.
-- Marks posted by someone else (the agent: `POST /api/mark {"text": "当てた"}`)
-  drive the running procedure too, unless they name another `step`.
-- A procedure with problems is listed with ⚠ and cannot be started; the page
-  shows the problems under the picker.
+- **手順** のタブを開き（横の欄が広がる: 基板の絵 + 今の手順）、手順を選んで **開始** を押す。マイクを ON にする（🎤 音声）
+- 言葉: 「当てた」「OK」「次」「はい」 = 記録 / はい。「NG」「だめ」「いいえ」 = いいえ（はい/いいえの手順だけ）。「戻る」 = 1 つ前の手順へ（その結果は捨てる）。「やり直し」 = 最後に記録した手順を今の値で測り直し、判定し直す。絵の下のボタンも同じ動作
+- 記録する値は、声の印の各チャンネルの `now`（最新の値）。そのため、`runs/marks.jsonl` の印にも同じ数と手順の id が入る
+- 輪: CH1 は黄、CH2 は水色、GND のクリップは白、テスターは桃色。前の手順の点は薄く描く。絵をクリックすると、今のプローブの周りを 2 倍に拡大する（手順が変わっても拡大のまま。もう一度クリックで戻る）。絵は手順に合わせて表 / 裏を切り替える。裏 = 基板を裏返して見た面
+- 🔈 読み上げ は、各指示とエージェントからの知らせ（`POST /api/say`）を読み上げる（ja-JP）。一度押すまで OFF で、その後はブラウザに残す。読み上げている間は、聞き取った声を無視する
+- ほかから送られた印（エージェント: `POST /api/mark {"text": "当てた"}`）も、動いている手順を進める。別の `step` を指しているときは除く
+- 問題のある手順は ⚠ 付きで並び、開始できない。問題は手順の選択の下に出す
 
 ## エージェントの計測で人がプローブを持つとき（guide.py）
 
-The person cannot do anything else while holding the probes, so an agent script
-must not leave them waiting blind: `guide.probe(prompt, ready)` says the prompt
-(「…に当ててください」), watches the live readings until `ready` holds for 0.5 s,
-then says 「計測中」; `guide.done()` says 「計測終わり」. Keep the part between
-the two short. A record started right after `probe()` skips the 2 s input
-settle when the live view already uses the same ranges/offsets.
+プローブを持っている間、人はほかに何もできない。そのため、エージェントのスクリプトは人を何も分からないまま待たせない。`guide.probe(prompt, ready)` は指示（「…に当ててください」）を言い、ライブの値で `ready` が 0.5 秒続くまで見て、「計測中」と言う。`guide.done()` は「計測終わり」と言う。2 つの間は短くする。`probe()` の直後に始めた記録は、ライブの表示がすでに同じ範囲・オフセットなら、2 秒の入力の安定待ちを省く。
 
-The agent follows a run with `GET /api/procedure/state` (or by tailing
-`runs/*-proc-<name>/results.jsonl`: one line per recorded step with `step`,
-`kind`, `pass`, `values` {ch1, ch2}, `limits`, `answer`, `probes`, `mark`, and
-a last line `{"event": "end" | "abort", "conclusion": ...}`).
+エージェントは `GET /api/procedure/state` で実行を追う（または `runs/*-proc-<name>/results.jsonl` の末尾を読む: 記録した手順ごとに 1 行で `step`、`kind`、`pass`、`values` {ch1, ch2}、`limits`、`answer`、`probes`、`mark`、最後の行は `{"event": "end" | "abort", "conclusion": ...}`）。
 
-### 新しい基板・新しい手順を追加する
+### 新しい基板・新しい手順の追加
 
-1. Board map (once per board revision), with KiCad 10 installed:
+1. 基板の図（基板の版ごとに 1 回）。KiCad 10 を入れておく:
 
    ```
    python boardmap.py <path>\board.kicad_pcb <name> --data <folder>   # -> <folder>/boards/<name>/top.jpg, bottom.jpg, pads.json
    ```
 
-   `pads.json` lists every pad: `ref`, `pad`, `net`, `value`, `side`, `tht`,
-   and `px.top` / `px.bottom` (pixel in the picture; bottom is mirrored as seen
-   from below). The board file is only read.
-2. Write `procedures/<new_name>.json` in the data folder (name:
-   `[A-Za-z0-9_-]`, schema below), set `board` and the steps. Nothing in `adscope.py` / `index.html` is board- or
-   procedure-specific.
-3. Reload the page (no server restart): the picker shows ⚠ and the problems if
-   something does not match the board.
+   `pads.json` はすべてのパッドを並べる: `ref`、`pad`、`net`、`value`、`side`、`tht`、`px.top` / `px.bottom`（絵の中のピクセル。裏は下から見たとおりに左右を反転）。基板のファイルは読むだけ。
+2. データのフォルダに `procedures/<new_name>.json` を書き（名前: `[A-Za-z0-9_-]`、形式は下）、`board` と手順を決める。`adscope.py` / `index.html` には、基板や手順に固有のものは何も無い。
+3. ページを読み込み直す（サーバーの再起動は不要）。基板と合わないものがあれば、選択の欄に ⚠ と問題が出る。
 
-Schema (`version` 1):
+形式（`version` 1）:
 
 ```jsonc
 {
@@ -222,24 +152,11 @@ Schema (`version` 1):
 }
 ```
 
-- Probe `ch`: `1`, `2`, `"gnd"` (the clip), `"meter"` (a multimeter, for manual
-  steps). Give the point as `ref` + `pad` (add `net` to have it checked against
-  the board), or as `net` alone (+ optional `side`): the server picks a pad of
-  that net on that side, preferring a passive (C / R / L / FB), so the step
-  keeps working across board revisions. `label` defaults to the net name.
-- One probe at a time: attach the GND clip once in its own `connect_gnd` step
-  and move only CH1 afterwards. Use CH2 only when two points must be seen at the
-  same moment, and say so in `say`.
-- How a step is judged: with `expect` it is a measurement (「当てた」records,
-  every rule must hold); without `expect` but with `else` it is a yes/no
-  question (「OK」 → `next`, 「NG」 → `else`); otherwise a confirmation
-  (「OK」 → `next`). A failed measurement without `else` still goes to `next`
-  (shown ✘).
-- `expect` rule per channel (`ch1` / `ch2`, volts — amps when the channel has
-  a shunt): `[low, high]`, or `{"near": "<step id>", "tol": 0.3}` = within ±tol
-  of what the same channel read at that earlier step.
-- `next` / `else`: a step id, or `{"end": "結論の文"}` to finish with that
-  conclusion.
+- プローブの `ch`: `1`、`2`、`"gnd"`（クリップ）、`"meter"`（テスター。manual の手順用）。当てる所は `ref` + `pad`（`net` を足すと基板と照合する）か、`net` だけ（+ 任意で `side`）で書く。`net` だけなら、サーバーがその面のその net のパッドを、受動部品（C / R / L / FB）を優先して選ぶ。そのため、基板の版が変わっても手順が動き続ける。`label` の既定は net の名前
+- プローブは 1 本ずつ: GND のクリップは専用の `connect_gnd` の手順で一度だけ付け、その後は CH1 だけを動かす。CH2 は 2 点を同時に見る必要があるときだけ使い、そのことを `say` に書く
+- 手順の判定のしかた: `expect` があれば測定（「当てた」で記録し、すべての条件を満たす必要がある）。`expect` が無く `else` があれば、はい/いいえの質問（「OK」 → `next`、「NG」 → `else`）。どちらでもなければ確認（「OK」 → `next`）。`else` の無い測定は、外れても `next` へ進む（✘ を出す）
+- `expect` のチャンネルごとの条件（`ch1` / `ch2`、電圧。チャンネルにシャントがあれば電流）: `[low, high]`、または `{"near": "<step id>", "tol": 0.3}` = 前の手順で同じチャンネルが読んだ値の ±tol の中
+- `next` / `else`: 手順の id、または `{"end": "結論の文"}` でその結論で終える
 
 ```
 curl -s http://127.0.0.1:8195/api/measure
@@ -251,10 +168,10 @@ curl -s -X POST http://127.0.0.1:8195/api/save
 curl -s -X POST http://127.0.0.1:8195/api/record -d '{"seconds":2,"rate":200000}'
 ```
 
-## Notes for agents
+## エージェント向けの注意
 
-- Run the scripts from anywhere as `python <dev-tools>/ad-bench/adscope.py --data <folder>` (same for `adbench.py`, `boardmap.py`); `<folder>` is the project's data folder, never this repo.
-- Only one program can open the device: stop adscope (`POST /api/quit`) before running `adbench.py`, and ask the person to close the WaveForms GUI.
-- adscope and adbench only read inputs, except `adbench.py selftest` / `impedance` (drive W1) and `record --tcp` (sends one line to the device under test). Do not send anything to a device unless the person asked for that measurement.
-- When a person holds the probes, guide them by voice with `guide.py` (`guide.probe(...)` → measure → `guide.done()`), finish all settings and connection checks before the first prompt, and record only as long as needed.
-- Copy conclusions from `runs/` into the project's notes; `runs/` itself is not meant for git.
+- スクリプトはどこからでも `python <dev-tools>/ad-bench/adscope.py --data <folder>` で実行する（`adbench.py`、`boardmap.py` も同じ）。`<folder>` はプロジェクトのデータのフォルダで、この repo にはしない
+- 機器を開けるのは 1 つのプログラムだけ: `adbench.py` を動かす前に adscope を止め（`POST /api/quit`）、人に WaveForms の画面を閉じてもらう
+- adscope と adbench は入力を読むだけ。例外は `adbench.py selftest` / `impedance`（W1 を出力する）と `record --tcp`（測る機器へ 1 行を送る）。人がその計測を頼んだとき以外は、機器へ何も送らない
+- 人がプローブを持つときは、`guide.py` で声で案内する（`guide.probe(...)` → 測定 → `guide.done()`）。最初の指示の前に、設定と接続の確認をすべて済ませ、記録は必要な長さだけにする
+- 結論は `runs/` からプロジェクトのメモへ写す。`runs/` そのものは git に入れる前提ではない

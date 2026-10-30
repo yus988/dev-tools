@@ -1,44 +1,41 @@
 # dev-tools
 
-Small development and test tools for hardware / product work, kept independent
-of any company or project. Each tool lives in its own folder with its own
-README.
+[English](README.en.md)
 
-| Tool | What it does |
+ハードウェア・製品の開発と検証に使う小さなツールの置き場所。特定の会社や案件に依存しない。ツールごとにフォルダと README がある。
+
+| ツール | 内容 |
 |---|---|
-| [fit-lab](fit-lab/README.md) | Local web app to log CAD design values vs. measured values of printed parts per lot and clearance variant, with annotated pictures and a knowledge base over lots (voice entry included). |
-| [ad-bench](ad-bench/README.md) | Digilent Analog Discovery bench helper over the WaveForms SDK: monitor / record / impedance from the command line, a browser scope with an HTTP API (`adscope`), guided probing on a board picture, and voice prompts for the person holding the probes (`guide.py`). |
-| [kicad-review](kicad-review/README.md) | Local pages to review KiCad 10 schematics and boards with a coding agent: the changes between two schematic versions (folders or git refs) or one design, with arrows on the sheets; review items marked on the board in KiCad colours (per-layer SVG via kicad-cli, zone fills optional); severity / owner / status per item and a comment thread with the agent on talkpage. |
-| [talkpage](talkpage/README.md) | Base for local pages the user and a coding agent talk on: items declared in HTML (`data-talk`) or JSON get status buttons (OK / NG …) and a comment thread kept in a JSON beside the page; a wait command run in the background wakes the agent when the user acts, and its replies appear in place. |
+| [fit-lab](fit-lab/README.md) | 3D プリントなどの造形品の、CAD の設計値と実測値を、造形のロットとクリアランスの版ごとに記録するローカルの Web ツール。注記付きの画像を添えられ、ロットを重ねると知見の蓄積になる（音声での入力も可） |
+| [ad-bench](ad-bench/README.md) | Digilent Analog Discovery を WaveForms SDK で動かす計測の補助。コマンドでの監視・記録・インピーダンス測定、HTTP API 付きのブラウザのオシロスコープ（`adscope`）、基板の画像の上でプローブの当て所を案内する手順、プローブを持つ人への音声の案内（`guide.py`） |
 
-## Common requirements
+## 別の repo に分けたツール
 
-- Python 3.9+ (standard library unless a tool's README says otherwise).
-- A Chromium browser (Chrome / Edge) for the web pages; voice features use the
-  browser's Web Speech API.
-- Third-party software (e.g. Digilent WaveForms, KiCad) is installed
-  separately; no third-party binaries are kept here.
+| ツール | 内容 |
+|---|---|
+| [kicad-review](https://github.com/yus988/kicad-review) | KiCad 10 の回路図と基板を、コーディングエージェントとブラウザで一緒にレビューするローカルのツール（2026-10 に分けた） |
+| [talkpage](https://github.com/yus988/talkpage) | ユーザーが項目に状態やコメントを付けると、待っているエージェントが起きて返信する、ローカルのページの基盤。kicad-review もこれを使う（2026-10 に分けた） |
 
-## Project data stays outside this repo
+## 共通の前提
 
-The tools hold no project data. Keep campaigns, board maps, procedures and
-measurement results in the workspace of the project that uses them, and pass
-that folder to the tool (`--root` / `--data` or the environment variable named
-in each README). Only neutral samples are kept here.
+- Python 3.9 以上（各ツールの README に書いていなければ、標準ライブラリだけ）
+- Web のページは Chromium 系のブラウザ（Chrome・Edge）で使う。音声の機能はブラウザの Web Speech API を使う
+- 第三者のソフト（Digilent WaveForms、KiCad など）は別に入れておく。第三者のバイナリはこの repo に置かない
 
-## For other people
+## 案件のデータはこの repo に置かない
 
-These were written for my own work and are mostly driven by an AI agent
-(Claude Code / Codex), so the READMEs are short. Ask your agent to read a
-tool's README and run it for you; that is the intended way to use them.
-Issues and requests are not tracked. License: MIT (see `LICENSE`).
+ツールは案件のデータを持たない。造形の記録、基板の画像、手順、測定の結果は、使う側のプロジェクトのフォルダに置き、そのフォルダをツールに渡す（`--root` / `--data`、または各 README に書いた環境変数）。この repo には中立なサンプルだけを置く。
 
-## Location on a PC
+## ほかの人が使うとき
 
-Agents find the clone through `~/.agent-core/tools.conf`:
+作者が自分の作業のために作ったもので、主に AI のエージェント（Claude Code / Codex）に動かしてもらう前提のため、README は短い。エージェントにツールの README を読ませて、起動させるのが想定の使い方。issue や要望は受け付けていない。ライセンスは MIT（`LICENSE`）。
+
+## PC での置き場所
+
+エージェントは `~/.agent-core/tools.conf` でこの clone を見つける。
 
 ```
-dev_tools=<path to this clone>
+dev_tools=<この clone のパス>
 ```
 
 ```bash

@@ -5,7 +5,7 @@
 3D プリントなどの造形品の **CAD の設計値と実測値** を、造形のロット（campaign）とクリアランスの版（variant）ごとに、注記付きの画面の画像と一緒に記録する小さなローカルの Web ツール。データはただの JSON と PNG なので、git に入れて差分を見られ、AI エージェントが読み書きできる。ロットが増えると知見の蓄積になる（「PA12 の穴は直径で 0.1–0.2 mm 小さく出る」）。
 
 - 依存なし: サーバーは Python 3.9+ の標準ライブラリ、アプリはただの HTML/JS/CSS（ビルド不要、CDN なし、オフラインで動く）
-- `serve.py` の待ち受けは既定で `127.0.0.1`（変えるときは `--host`）
+- `serve.py` の待ち受けは既定で `127.0.0.1`（変えるときは `--host`）。別のサイトのページからの要求は断る（「HTTP API」の安全）
 - データ（campaign）はこの repo に入れない。使う側のプロジェクトの workspace に置き、そのフォルダを `--root`（または `FIT_LAB_ROOT`）で渡す
 
 ## 2 つの起動方法
@@ -24,7 +24,7 @@ python fit-lab/serve.py --root <data-root>
 |---|---|---|
 | `--root` | `$FIT_LAB_ROOT` | データのルート（campaign を並べたフォルダ）。今のフォルダからの相対パス。環境変数が無いときは必須 |
 | `--port` | `8765` | ポート |
-| `--host` | `127.0.0.1` | 待ち受けのアドレス |
+| `--host` | `127.0.0.1` | 待ち受けのアドレス。`127.0.0.1` / `localhost` 以外の特定のアドレスにすると、ほかの PC からも開ける（その名前の `Host` も受け付ける）。`0.0.0.0` では `127.0.0.1` / `localhost` の名前にしか答えない |
 
 同梱のサンプル（架空のデータ）で試す:
 
@@ -178,6 +178,12 @@ campaign・画像・保存は、そのままユーザーのディスクのその
 | PUT | `/api/campaigns/<id>` | `campaign.json` の置き換え。本文には `schema: "fit-lab/1"`、`id` = `<id>`、`items` の配列が要る。フォルダが無ければ作る |
 | GET | `/data/<id>/<path>` | campaign のフォルダの中のファイル（画像） |
 
+安全:
+
+- 次は 403: `Host` がこのサーバーの名前（`127.0.0.1:<port>` / `localhost:<port>`、特定の `--host`）以外（DNS rebinding）。`Origin` がこのサーバー以外（別のサイトのページ。`null` も）。ブラウザが `Sec-Fetch-Site: cross-site` / `same-site` を付けた要求（別のサイトからは、リンクでアプリを開くことだけを通す。`<img>`・`<script>`・iframe・`fetch` は通さない）。`Origin` も自分の `Referer` も無い PUT
+- ブラウザの外のクライアント（curl、スクリプト）は、PUT に `Origin: http://127.0.0.1:<port>` を付ける。読むだけの GET は、ヘッダー無しでも読める。CORS のヘッダーは付けず、ページは `X-Frame-Options: SAMEORIGIN`
+- 試験: `fit-lab` のフォルダで `python -m unittest test_serve`
+
 ## AI エージェント向け: campaign の追加
 
 1. `<data-root>/<campaign-id>/` を作る（データのルートは `serve.py --root` に渡すフォルダで、この repo ではなくプロジェクトの workspace に置く）。id は `<product>-<material>-lot<N>` のような、中身が分かる小文字の名前にする
@@ -186,7 +192,7 @@ campaign・画像・保存は、そのままユーザーのディスクのその
 4. 注記: 座標は画像の大きさに対する割合で書く（ピクセルの x / width、ピクセルの y / height）。寸法なら 2 点は測る区間の両端、点の形状ならその点。既定の番号の位置が何かを隠すときは `label_pos` を付ける
 5. 人が測る値の `measurements` は空（`[]`）にしておく。チャットで報告された結果を記録するときは追記する（古い記録は書き換えない）
 6. 確かめる: `python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))" <path>/campaign.json` の後、アプリで campaign を開き、すべての注記が対象の形状に乗っているかを見る
-7. サーバーが動いているときは、代わりに JSON を `PUT /api/campaigns/<id>` で送ってもよい。schema と id を確かめ、`.bak` を残す
+7. サーバーが動いているときは、代わりに JSON を `PUT /api/campaigns/<id>` で送ってもよい（`Origin: http://127.0.0.1:<port>` を付ける）。schema と id を確かめ、`.bak` を残す
 
 ## エージェント向けの注意
 

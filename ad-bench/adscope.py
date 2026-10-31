@@ -25,7 +25,7 @@ import re
 import threading
 import time
 import webbrowser
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 from ctypes import byref, c_byte, c_double, c_int, create_string_buffer
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -899,8 +899,38 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', ctype + ('; charset=utf-8' if 'json' in ctype or 'html' in ctype else ''))
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('X-Frame-Options', 'SAMEORIGIN')     # another site cannot frame the page to steer clicks
         self.end_headers()
         self.wfile.write(body)
+
+    def _local(self):
+        """Only this server's own page and the agent's clients. Host: another name is DNS rebinding. Origin (every
+        POST, other sites' fetches): ours or nothing. Sec-Fetch-Site (also <img>, <script>, forms): another site may
+        open the page by a link and nothing else. A POST needs our Origin, or a request of our page (same-origin, or
+        our Referer in a browser without Sec-Fetch-Site); clients without a browser send Origin (guide.py)."""
+        port = self.server.server_address[1]
+        own = ('http://127.0.0.1:%d' % port, 'http://localhost:%d' % port)
+        h = self.headers
+        if (h.get('Host') or '').lower() not in [o[len('http://'):] for o in own]:
+            return False
+        origin = (h.get('Origin') or '').lower()
+        if origin:
+            return origin in own                                   # also refuses "null" (sandboxed frames, file:)
+        site = (h.get('Sec-Fetch-Site') or '').lower()
+        if site in ('cross-site', 'same-site'):
+            return (self.command == 'GET' and not self.path.startswith('/api/')
+                    and h.get('Sec-Fetch-Mode') == 'navigate' and h.get('Sec-Fetch-Dest') == 'document')
+        ref = urlsplit(h.get('Referer') or '')
+        ref = ('%s://%s' % (ref.scheme, ref.netloc)).lower() if ref.netloc else ''
+        if ref and ref not in own:
+            return False
+        return self.command == 'GET' or site == 'same-origin' or bool(ref)
+
+    def _refuse(self):
+        port = self.server.server_address[1]
+        self._send(403, {'error': 'only the page of http://127.0.0.1:%d; a client without a browser sends the header '
+                                  'Origin: http://127.0.0.1:%d' % (port, port)})
 
     def _body(self):
         n = int(self.headers.get('Content-Length') or 0)
@@ -909,6 +939,8 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n).decode('utf-8'))
 
     def do_GET(self):
+        if not self._local():
+            return self._refuse()
         path = self.path.split('?')[0]
         sc = self.scope
         if path in ('/', '/index.html'):
@@ -945,9 +977,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {'error': 'not found'})
 
     def do_POST(self):
+        if not self._local():
+            return self._refuse()
         path = self.path.split('?')[0]
         sc = self.scope
         try:
+            json_body = (self.headers.get('Content-Type') or '').lower().startswith('application/json')
+            if int(self.headers.get('Content-Length') or 0) and not json_body:      # no form of another site
+                return self._send(415, {'error': 'Content-Type: application/json'})
             body = self._body()
             if path == '/api/config':
                 self._send(200, {'settings': sc.configure(body)})

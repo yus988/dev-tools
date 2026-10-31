@@ -31,7 +31,7 @@ import tempfile
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlsplit
 
 SCHEMA = "fit-lab/1"
 APP_DIR = Path(__file__).resolve().parent
@@ -69,10 +69,44 @@ def campaign_summary(cid: str, data: dict) -> dict:
 class Handler(BaseHTTPRequestHandler):
     server_version = "fit-lab/1"
     root: Path = Path(".")
+    names: tuple = ("127.0.0.1", "localhost")   # host names this server answers to (main adds a specific --host)
 
     # ---- helpers -------------------------------------------------------
     def log_message(self, fmt, *args):  # quieter log
         sys.stderr.write("%s %s\n" % (self.command, fmt % args))
+
+    def end_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")    # another site cannot frame the app to steer clicks
+        super().end_headers()
+
+    def local(self) -> bool:
+        """Only this server's own app and the agent's clients. Host: another name is DNS rebinding. Origin (writes,
+        other sites' fetches): ours or nothing. Sec-Fetch-Site (also <img>, <script>): another site may open the app
+        by a link and nothing else. A PUT needs our Origin, or a request of our page (same-origin, or our Referer
+        in a browser without Sec-Fetch-Site); clients without a browser send Origin: http://127.0.0.1:<port>."""
+        port = self.server.server_address[1]
+        own = tuple(f"http://{n}:{port}" for n in self.names)
+        h = self.headers
+        if (h.get("Host") or "").lower() not in [o[len("http://"):] for o in own]:
+            return False
+        origin = (h.get("Origin") or "").lower()
+        if origin:
+            return origin in own                                   # also refuses "null" (sandboxed frames, file:)
+        site = (h.get("Sec-Fetch-Site") or "").lower()
+        if site in ("cross-site", "same-site"):
+            return (self.command == "GET" and not unquote(urlparse(self.path).path).startswith("/api/")
+                    and h.get("Sec-Fetch-Mode") == "navigate" and h.get("Sec-Fetch-Dest") == "document")
+        ref = urlsplit(h.get("Referer") or "")
+        ref = f"{ref.scheme}://{ref.netloc}".lower() if ref.netloc else ""
+        if ref and ref not in own:
+            return False
+        return self.command == "GET" or site == "same-origin" or bool(ref)
+
+    def refuse(self):
+        port = self.server.server_address[1]
+        self.send_error_json(HTTPStatus.FORBIDDEN, f"only the app of http://127.0.0.1:{port}; a client without a "
+                                                   f"browser sends the header Origin: http://127.0.0.1:{port}")
 
     def send_json(self, obj, status=HTTPStatus.OK):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -108,6 +142,9 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- routes --------------------------------------------------------
     def do_GET(self):
+        if not self.local():
+            self.refuse()
+            return
         path = unquote(urlparse(self.path).path)
         if path in APP_FILES:
             self.send_file(APP_DIR / APP_FILES[path])
@@ -125,6 +162,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error_json(HTTPStatus.NOT_FOUND, "not found")
 
     def do_PUT(self):
+        if not self.local():
+            self.refuse()
+            return
         path = unquote(urlparse(self.path).path)
         if not path.startswith("/api/campaigns/"):
             self.send_error_json(HTTPStatus.NOT_FOUND, "not found")
@@ -207,6 +247,13 @@ def main():
     Handler.root = Path(args.root).resolve()
     if not Handler.root.is_dir():
         print(f"warning: data root {Handler.root} does not exist (created on first save)", file=sys.stderr)
+    if args.host.lower() not in Handler.names:
+        if args.host in ("0.0.0.0", ""):
+            print("warning: listening on all interfaces, but only http://127.0.0.1 / localhost is answered; "
+                  "to open it from another device give that address with --host", file=sys.stderr)
+        else:
+            Handler.names += (args.host.lower(),)
+            print(f"warning: http://{args.host}:{args.port}/ can be reached from other computers", file=sys.stderr)
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"fit-lab: http://{args.host}:{args.port}/  (data root: {Handler.root})")
     try:

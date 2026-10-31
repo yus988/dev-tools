@@ -76,11 +76,24 @@ python adscope.py --data <folder>               # opens http://127.0.0.1:8195/ i
 python adscope.py --data <folder> --port 8195 --no-open
 ```
 
-Stop with Ctrl-C or `curl -X POST http://127.0.0.1:8195/api/quit`; both close
+Stop with Ctrl-C or `curl -X POST -H "Origin: http://127.0.0.1:8195" http://127.0.0.1:8195/api/quit`; both close
 the device. **While adscope runs, `adbench.py` commands cannot open the device**
 (only one program can); the WaveForms GUI must stay closed too. If the device is
 missing or busy, the page shows the reason and a 再接続 button (`/api/connect`);
 it is never retried automatically.
+
+### Safety
+
+- Listens on `127.0.0.1` only; no CORS headers.
+- 403 for: a `Host` other than `127.0.0.1:<port>` / `localhost:<port>` (DNS rebinding); an `Origin` other than
+  `http://127.0.0.1:<port>` / `http://localhost:<port>` (another site's page, `null` too); requests the browser
+  marks `Sec-Fetch-Site: cross-site` / `same-site` (another site may only open the page by a link — no `<img>`,
+  `<script>`, iframe or `fetch`); a POST with neither `Origin` nor our own `Referer`.
+- Clients without a browser send `Origin: http://127.0.0.1:<port>` on POSTs (`guide.py` does). A POST with a body
+  must be `Content-Type: application/json` (else 415, so no other site's form gets through). Read-only GETs work
+  with plain curl.
+- The page sends `X-Frame-Options: SAMEORIGIN`, so another site cannot frame it to steer clicks.
+- Tests: `python -m unittest test_adscope` in the `ad-bench` folder (opens no device; needs the WaveForms SDK).
 
 ### Screen
 
@@ -244,13 +257,14 @@ Schema (`version` 1):
   conclusion.
 
 ```
+O='Origin: http://127.0.0.1:8195'; J='Content-Type: application/json'     # needed on POSTs (see Safety)
 curl -s http://127.0.0.1:8195/api/measure
-curl -s -X POST http://127.0.0.1:8195/api/config -d '{"channels":{"0":{"name":"VSYS","vdiv":1,"offset":2.5},"1":{"name":"3V3","vdiv":1,"offset":2.5}}}'
-curl -s -X POST http://127.0.0.1:8195/api/config -d '{"mode":"roll","roll_s":10}'
-curl -s -X POST http://127.0.0.1:8195/api/config -d '{"mode":"normal","tdiv":0.001,"trigger":{"source":0,"edge":"rise","level":2.0,"pre":20}}'
-curl -s -X POST http://127.0.0.1:8195/api/single
-curl -s -X POST http://127.0.0.1:8195/api/save
-curl -s -X POST http://127.0.0.1:8195/api/record -d '{"seconds":2,"rate":200000}'
+curl -s -H "$O" -H "$J" http://127.0.0.1:8195/api/config -d '{"channels":{"0":{"name":"VSYS","vdiv":1,"offset":2.5},"1":{"name":"3V3","vdiv":1,"offset":2.5}}}'
+curl -s -H "$O" -H "$J" http://127.0.0.1:8195/api/config -d '{"mode":"roll","roll_s":10}'
+curl -s -H "$O" -H "$J" http://127.0.0.1:8195/api/config -d '{"mode":"normal","tdiv":0.001,"trigger":{"source":0,"edge":"rise","level":2.0,"pre":20}}'
+curl -s -X POST -H "$O" http://127.0.0.1:8195/api/single
+curl -s -X POST -H "$O" http://127.0.0.1:8195/api/save
+curl -s -H "$O" -H "$J" http://127.0.0.1:8195/api/record -d '{"seconds":2,"rate":200000}'
 ```
 
 ## Notes for agents

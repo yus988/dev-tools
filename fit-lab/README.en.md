@@ -5,7 +5,7 @@
 A small local web tool for recording **CAD design values vs. measured values** of 3D-printed parts, per print lot (campaign) and per clearance variant, with annotated screenshots. Data is plain JSON + PNG so it can live in git, be diffed, and be read or written by AI agents. Over many lots it becomes a knowledge base ("PA12 holes print 0.1–0.2 mm small on diameter").
 
 - No dependencies: Python 3.9+ standard library for the server, plain HTML/JS/CSS for the app (no build step, no CDN, works offline).
-- `serve.py` binds to `127.0.0.1` by default (`--host` to change it).
+- `serve.py` binds to `127.0.0.1` by default (`--host` to change it) and refuses requests from other sites' pages (Safety under "HTTP API").
 - The data (campaigns) is not part of this repo: keep it in the workspace of the project that uses it and pass its folder with `--root` (or `FIT_LAB_ROOT`).
 
 ## Two ways to run
@@ -24,7 +24,7 @@ Then open <http://127.0.0.1:8765/>.
 |---|---|---|
 | `--root` | `$FIT_LAB_ROOT` | data root (folder of campaigns), relative to the current directory; required when the variable is not set |
 | `--port` | `8765` | port |
-| `--host` | `127.0.0.1` | bind address |
+| `--host` | `127.0.0.1` | bind address. A specific address other than `127.0.0.1` / `localhost` makes the app reachable from other computers (that `Host` name is accepted too); with `0.0.0.0` only the names `127.0.0.1` / `localhost` are answered |
 
 Try it with the bundled sample (fake data):
 
@@ -178,6 +178,12 @@ Rules:
 | PUT | `/api/campaigns/<id>` | replace `campaign.json`; body must have `schema: "fit-lab/1"`, `id` = `<id>`, `items` list. Creates the folder if missing. |
 | GET | `/data/<id>/<path>` | files inside a campaign folder (images) |
 
+Safety:
+
+- 403 for: a `Host` other than this server's names (`127.0.0.1:<port>` / `localhost:<port>`, a specific `--host`) (DNS rebinding); an `Origin` other than this server (another site's page, `null` too); requests the browser marks `Sec-Fetch-Site: cross-site` / `same-site` (another site may only open the app by a link — no `<img>`, `<script>`, iframe or `fetch`); a PUT with neither `Origin` nor our own `Referer`.
+- Clients without a browser (curl, scripts) send `Origin: http://127.0.0.1:<port>` on PUTs; read-only GETs need no header. No CORS headers; pages send `X-Frame-Options: SAMEORIGIN`.
+- Tests: `python -m unittest test_serve` in the `fit-lab` folder.
+
 ## For AI agents: adding a campaign
 
 1. Create `<data-root>/<campaign-id>/` (the data root is the folder passed to `serve.py --root`, kept in the project's workspace, not in this repo). Use a descriptive, lowercase id such as `<product>-<material>-lot<N>`.
@@ -186,7 +192,7 @@ Rules:
 4. Annotations: give coordinates as fractions of the image size (pixel x / width, pixel y / height). For a dimension, the two points are the ends of the measured span; for a point feature, the point itself. Set `label_pos` when the default badge position would cover something.
 5. Leave `measurements` empty (`[]`) for values the human will measure; append entries (never rewrite old ones) when recording results reported in chat.
 6. Validate: `python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))" <path>/campaign.json`, then open the campaign in the app and check every callout lands on its feature.
-7. When the server is running you may instead `PUT /api/campaigns/<id>` with the JSON; it validates the schema/id and keeps a `.bak`.
+7. When the server is running you may instead `PUT /api/campaigns/<id>` with the JSON (send `Origin: http://127.0.0.1:<port>`); it validates the schema/id and keeps a `.bak`.
 
 ## Notes for agents
 

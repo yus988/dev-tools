@@ -18,7 +18,7 @@ BASE = 'http://127.0.0.1:8195'
 
 def _req(path, body=None, timeout=5):
     data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(BASE + path, data=data, headers={'Content-Type': 'application/json'},
+    req = urllib.request.Request(BASE + path, data=data, headers={'Content-Type': 'application/json', 'Origin': BASE},
                                  method='GET' if body is None else 'POST')
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.load(r)

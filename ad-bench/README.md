@@ -52,7 +52,15 @@ python adscope.py --data <folder>               # opens http://127.0.0.1:8195/ i
 python adscope.py --data <folder> --port 8195 --no-open
 ```
 
-終了は Ctrl-C か `curl -X POST http://127.0.0.1:8195/api/quit`。どちらも機器を閉じる。**adscope が動いている間は、`adbench.py` のコマンドは機器を開けない**（開けるのは 1 つのプログラムだけ）。WaveForms の画面も閉じたままにする。機器が無い・使用中のときは、ページに理由と再接続のボタン（`/api/connect`）を出す。自動では再試行しない。
+終了は Ctrl-C か `curl -X POST -H "Origin: http://127.0.0.1:8195" http://127.0.0.1:8195/api/quit`。どちらも機器を閉じる。**adscope が動いている間は、`adbench.py` のコマンドは機器を開けない**（開けるのは 1 つのプログラムだけ）。WaveForms の画面も閉じたままにする。機器が無い・使用中のときは、ページに理由と再接続のボタン（`/api/connect`）を出す。自動では再試行しない。
+
+### 安全
+
+- 待ち受けは `127.0.0.1` だけ。CORS のヘッダーは付けない
+- 次は 403: `Host` が `127.0.0.1:<port>` / `localhost:<port>` 以外（DNS rebinding）。`Origin` が `http://127.0.0.1:<port>` / `http://localhost:<port>` 以外（別のサイトのページ。`null` も）。ブラウザが `Sec-Fetch-Site: cross-site` / `same-site` を付けた要求（別のサイトからは、リンクでページを開くことだけを通す。`<img>`・`<script>`・iframe・`fetch` は通さない）。`Origin` も自分の `Referer` も無い POST
+- ブラウザの外のクライアントは、POST に `Origin: http://127.0.0.1:<port>` を付ける（`guide.py` は付けている）。本文のある POST は `Content-Type: application/json` だけ受け付ける（ほかは 415。別のサイトのフォームからは送れない）。読むだけの GET は、ヘッダー無しの curl でも読める
+- ページは `X-Frame-Options: SAMEORIGIN` で、別のサイトの枠に入れて押させることもできない
+- 試験: `ad-bench` のフォルダで `python -m unittest test_adscope`（機器は開かない。WaveForms の SDK は要る）
 
 ### 画面
 
@@ -159,13 +167,14 @@ python adscope.py --data <folder> --port 8195 --no-open
 - `next` / `else`: 手順の id、または `{"end": "結論の文"}` でその結論で終える
 
 ```
+O='Origin: http://127.0.0.1:8195'; J='Content-Type: application/json'     # POST に要る（「安全」）
 curl -s http://127.0.0.1:8195/api/measure
-curl -s -X POST http://127.0.0.1:8195/api/config -d '{"channels":{"0":{"name":"VSYS","vdiv":1,"offset":2.5},"1":{"name":"3V3","vdiv":1,"offset":2.5}}}'
-curl -s -X POST http://127.0.0.1:8195/api/config -d '{"mode":"roll","roll_s":10}'
-curl -s -X POST http://127.0.0.1:8195/api/config -d '{"mode":"normal","tdiv":0.001,"trigger":{"source":0,"edge":"rise","level":2.0,"pre":20}}'
-curl -s -X POST http://127.0.0.1:8195/api/single
-curl -s -X POST http://127.0.0.1:8195/api/save
-curl -s -X POST http://127.0.0.1:8195/api/record -d '{"seconds":2,"rate":200000}'
+curl -s -H "$O" -H "$J" http://127.0.0.1:8195/api/config -d '{"channels":{"0":{"name":"VSYS","vdiv":1,"offset":2.5},"1":{"name":"3V3","vdiv":1,"offset":2.5}}}'
+curl -s -H "$O" -H "$J" http://127.0.0.1:8195/api/config -d '{"mode":"roll","roll_s":10}'
+curl -s -H "$O" -H "$J" http://127.0.0.1:8195/api/config -d '{"mode":"normal","tdiv":0.001,"trigger":{"source":0,"edge":"rise","level":2.0,"pre":20}}'
+curl -s -X POST -H "$O" http://127.0.0.1:8195/api/single
+curl -s -X POST -H "$O" http://127.0.0.1:8195/api/save
+curl -s -H "$O" -H "$J" http://127.0.0.1:8195/api/record -d '{"seconds":2,"rate":200000}'
 ```
 
 ## エージェント向けの注意

@@ -10,6 +10,7 @@ README.
 |---|---|
 | [fit-lab](fit-lab/README.en.md) | Local web app to log CAD design values vs. measured values of printed parts per lot and clearance variant, with annotated pictures and a knowledge base over lots (voice entry included). |
 | [ad-bench](ad-bench/README.en.md) | Digilent Analog Discovery bench helper over the WaveForms SDK: monitor / record / impedance from the command line, a browser scope with an HTTP API (`adscope`), guided probing on a board picture, and voice prompts for the person holding the probes (`guide.py`). |
+| [gantt](gantt/README.en.md) | Gantt chart that an agent writes as JSON and a person adjusts in a Windows window (pywebview) by dragging bars; the window reloads outside edits and logs the person's changes for the agent. The same renderer writes SVG / PNG / PDF, embeds the chart in an HTML report and exports copies to a synced folder for sharing. |
 
 ## Tools moved to their own repositories
 

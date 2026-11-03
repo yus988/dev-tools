@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>gantt</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="/favicon.ico">
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2330;--muted:#5b6475;--line:#d7dbe3;--accent:#a3385f;--head:#eef1f6;
+ --warn:#fff3e0;--warns:#d08a2a;--rec:#e8f0fb;--recs:#3d6fb6;--ok:#e6f4ea;--oks:#4b9a5f;--ng:#fbe9e7;--ngs:#c0504d;
+ color-scheme:light dark}
+@media (prefers-color-scheme: dark){:root{--bg:#14171d;--card:#1c2028;--ink:#e6e9ef;--muted:#9aa3b4;--line:#323846;
+ --accent:#e57fa4;--head:#232834;--warn:#3a2c15;--warns:#e0a84a;--rec:#18263a;--recs:#6e9fe0;--ok:#1b3324;--oks:#6cc086;
+ --ng:#3a1f1d;--ngs:#e0807a}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:13px/1.4 "Yu Gothic UI","Meiryo","Hiragino Sans",sans-serif;
+ display:flex;flex-direction:column;overflow:hidden}
+button{font:inherit;color:var(--ink);cursor:pointer}
+
+/* toolbar: fixed height, buttons of one size, the status text of a fixed width */
+#bar{flex:none;height:46px;display:flex;align-items:center;gap:6px;padding:0 12px;background:var(--card);
+ border-bottom:1px solid var(--line)}
+#ttl{flex:0 1 auto;min-width:0;max-width:24vw;margin-right:6px;font-weight:700;white-space:nowrap;overflow:hidden;
+ text-overflow:ellipsis}
+.tb{flex:none;width:104px;height:28px;padding:0;font-size:12px;font-weight:400;background:var(--head);
+ border:1px solid var(--line);border-radius:6px}
+.tb:hover{border-color:var(--recs)}
+.tb:active{font-weight:400;background:var(--line)}
+.tb:disabled{opacity:.5;cursor:default}
+#legend{flex:1 1 0;min-width:0;max-height:40px;display:flex;flex-wrap:wrap;align-content:center;gap:1px 12px;
+ margin-left:8px;overflow:hidden;white-space:nowrap;color:var(--muted);font-size:11.5px;line-height:1.3}
+.lg{display:inline-flex;align-items:center;gap:4px}
+.sw{display:inline-block;width:16px;height:10px;border:1px solid var(--line);border-radius:2px}
+.sw.k-plan{background:var(--rec);border-color:var(--recs)}
+.sw.k-tbd{background:repeating-linear-gradient(45deg,var(--rec) 0 3px,var(--card) 3px 6px);border:1px dashed var(--recs)}
+.sw.k-due{background:var(--warn);border-color:var(--warns)}
+.sw.k-ext{background:var(--ng);border-color:var(--ngs)}
+.sw.k-wait{background:repeating-linear-gradient(90deg,var(--line) 0 2px,transparent 2px 5px)}
+.sw.k-off{background:var(--line)}
+.sw.k-done{background:var(--ok);border-color:var(--oks)}
+#status{flex:0 1 160px;width:160px;min-width:0;text-align:right;white-space:nowrap;overflow:hidden;
+ text-overflow:ellipsis;color:var(--muted);font-size:12px}
+#status.err{color:var(--ngs)}
+
+/* chart */
+#sc{flex:1;min-height:0;overflow:auto;background:var(--card)}
+#chart{width:max-content;user-select:none;-webkit-user-select:none}
+#chart svg{display:block;max-width:none}
+.gantt text{cursor:inherit}
+.gantt .row:hover .hov{fill:var(--ink);fill-opacity:.05}
+.gantt .row.cur .hov{fill:var(--accent);fill-opacity:.08}
+.gantt .it.sel .b,.gantt .it.sel .m{stroke:var(--accent);stroke-width:2}
+.gantt .ttl,.gantt .ttl *,.gantt .go{cursor:pointer}
+.gantt .rs text{display:none}
+#tip{position:fixed;z-index:9;pointer-events:none;padding:2px 7px;font-size:12px;white-space:nowrap;
+ background:var(--ink);color:var(--card);border-radius:3px}
+
+/* drawer: overlay of a fixed width, the chart does not move */
+#drawer{position:fixed;top:46px;right:0;bottom:0;width:340px;z-index:5;overflow:auto;background:var(--card);
+ border-left:1px solid var(--line);box-shadow:-6px 0 16px rgba(0,0,0,.14)}
+.dh{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;padding:8px 12px;
+ background:var(--head);border-bottom:1px solid var(--line)}
+.x{width:28px;height:28px;padding:0;background:transparent;border:1px solid transparent;border-radius:6px}
+.x:hover{border-color:var(--line)}
+.dbody{padding:8px 12px 18px}
+.fl{display:flex;align-items:center;gap:8px;margin:6px 0}
+.fl>span{flex:none;width:44px;color:var(--muted);font-size:12px}
+.fl input,.fl select,.fl textarea{flex:1;min-width:0;padding:4px 6px;font:inherit;color:var(--ink);background:var(--card);
+ border:1px solid var(--line);border-radius:4px}
+.fl textarea{height:58px;resize:vertical}
+.fl.top{align-items:flex-start}
+.sm{flex:none;width:56px;height:26px;padding:0;font-size:12px;font-weight:400;background:var(--head);
+ border:1px solid var(--line);border-radius:4px}
+.sm:active,.btns button:active{font-weight:400}
+.itm{margin:10px 0;padding:4px 8px 6px;border:1px solid var(--line);border-left:3px solid var(--line)}
+.itm.hl{border-left-color:var(--accent)}
+.ih{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:12px}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.btns button{height:28px;font-size:12px;font-weight:400;background:var(--head);border:1px solid var(--line);border-radius:6px}
+.btns button:hover,.sm:hover{border-color:var(--recs)}
+hr{border:0;border-top:1px solid var(--line);margin:12px 0 4px}
+</style>
+</head>
+<body>
+<div id="bar">
+ <div id="ttl"></div>
+ <button class="tb" id="bAddRow">行を追加</button>
+ <button class="tb" id="bAddGroup">区切りを追加</button>
+ <button class="tb" id="bUndo">元に戻す</button>
+ <button class="tb" id="bOut">縮小</button>
+ <button class="tb" id="bIn">拡大</button>
+ <button class="tb" id="bToday">今日</button>
+ <button class="tb" id="bShare" hidden>共有用に書き出し</button>
+ <div id="legend"></div>
+ <div id="status"></div>
+</div>
+<div id="sc"><div id="chart"></div></div>
+<aside id="drawer" hidden></aside>
+<div id="tip" hidden></div>
+<script>
+'use strict';
+window.__errors = [];
+const $ = id => document.getElementById(id);
+function setStatus(text, err) { const s = $('status'); s.textContent = text; s.title = text; s.classList.toggle('err', !!err); }
+function fail(m) { window.__errors.push(String(m)); setStatus('エラー: ' + m, true); }
+window.addEventListener('error', e => fail(e.message || e.error));
+window.addEventListener('unhandledrejection', e => fail((e.reason && e.reason.message) || e.reason));
+
+const ZOOMS = [6, 8, 10, 14, 18, 24, 32];
+const S = {day: 14, data: null, svg: '', mtime: '', file: '', legend: {}, kinds: [], sel: null, drawer: null,
+           busy: false, gen: 0, sig: '', reveal: false};
+let drag = null;
+
+// ---- API: pywebview (desktop window) or POST /api/<name> (browser)
+const HTTP = location.protocol === 'http:' || location.protocol === 'https:';
+const apiReady = HTTP ? Promise.resolve() : new Promise(res => {
+  const ok = () => window.pywebview && window.pywebview.api && typeof window.pywebview.api.get === 'function';
+  if (ok()) res(); else window.addEventListener('pywebviewready', () => res(), {once: true});
+});
+async function api(name, ...args) {
+  await apiReady;
+  if (!HTTP) return await window.pywebview.api[name](...args);
+  const r = await fetch('/api/' + name, {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                          body: JSON.stringify(args)});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+
+// ---- dates (days since 1970-01-01, UTC)
+const DAY = 86400000;
+const pd = s => { const m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(s || ''); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY : null; };
+const fd = n => new Date(n * DAY).toISOString().slice(0, 10);
+const md = n => { const d = new Date(n * DAY); return (d.getUTCMonth() + 1) + '/' + d.getUTCDate(); };
+const todayN = () => { const d = new Date(); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAY; };
+const hm = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+// ---- state
+const rowOf = id => S.data && S.data.rows.find(r => r.id === id);
+const isGroup = r => 'group' in r;
+const isMs = it => it.on != null;
+const snap = it => { const o = {}; for (const k of ['from', 'to', 'on', 'label', 'kind']) if (it[k] != null) o[k] = it[k]; return o; };
+const itemName = it => it.label || '無題';
+
+function take(res) {
+  S.data = res.data; S.svg = res.svg; S.mtime = res.mtime; S.gen++;
+  if (res.day) S.day = res.day;
+  if (res.file) S.file = res.file;
+  if (res.kinds) S.kinds = res.kinds;
+  if (res.legend) { S.legend = res.legend; $('legend').innerHTML = S.kinds.map(k => '<span class="lg"><i class="sw k-' + k + '"></i>' + esc(S.legend[k]) + '</span>').join(''); }
+  $('bShare').hidden = !res.share;
+  $('ttl').textContent = res.data.title || S.file;
+  document.title = (res.data.title || S.file) + ' — ' + S.file;
+  paint();
+}
+function paint() {
+  const sc = $('sc'), l = sc.scrollLeft, t = sc.scrollTop;
+  $('chart').innerHTML = S.svg;
+  sc.scrollLeft = l; sc.scrollTop = t;
+  mark();
+  syncDrawer();
+}
+function mark() {
+  for (const g of document.querySelectorAll('#chart g.it'))
+    g.classList.toggle('sel', !!S.sel && g.dataset.r === S.sel.r && +g.dataset.i === S.sel.i);
+  for (const g of document.querySelectorAll('#chart g.row')) g.classList.toggle('cur', g.dataset.r === S.drawer);
+}
+function geom() {
+  const svg = $('chart').querySelector('svg');
+  if (!svg) return null;
+  const r = svg.getBoundingClientRect();
+  return {left: r.left, k: r.width / svg.viewBox.baseVal.width, x0: +svg.dataset.x0, dw: +svg.dataset.dw,
+          d0: pd(svg.dataset.d0), d1: pd(svg.dataset.d1)};
+}
+async function reload() { take(await api('get', S.day)); }
+async function commit(ops) {
+  S.busy = true;
+  try {
+    const res = await api('apply', ops, S.day);
+    if (res.ok) { take(res); setStatus('保存 ' + hm()); return res; }
+    if (res.conflict) { await reload(); setStatus('ほかで変わったので読み直し', true); }
+    else { setStatus(res.error || 'エラー', true); syncDrawer(); }
+  } catch (e) { fail(e.message || e); }
+  finally { S.busy = false; }
+  return null;
+}
+async function poll() {
+  if (drag || S.busy || !S.mtime) return;
+  const gen = S.gen;
+  try {
+    const res = await api('poll', S.mtime, S.day);
+    if (!res || gen !== S.gen || drag || S.busy) return;
+    if (res.error) { setStatus('読めません: ' + res.error, true); return; }
+    take(res);
+    setStatus('外で更新 ' + hm());
+  } catch (e) { setStatus('接続できません', true); }
+}
+
+// ---- toolbar
+async function addRow(after, row) {
+  const before = new Set(S.data.rows.map(r => r.id));
+  const res = await commit([{op: 'add_row', after: after, row: row}]);
+  const nr = res && S.data.rows.find(r => !before.has(r.id));
+  if (!nr) return;
+  openDrawer(nr.id, null);
+  const inp = $('drawer').querySelector('[data-f=title],[data-f=group]');
+  if (inp) { inp.focus(); inp.select(); }
+  const g = [...document.querySelectorAll('#chart g.row')].find(x => x.dataset.r === nr.id), sc = $('sc');
+  if (g && (+g.dataset.y < sc.scrollTop || +g.dataset.y > sc.scrollTop + sc.clientHeight - 60)) sc.scrollTop = Math.max(0, +g.dataset.y - 80);
+}
+async function doUndo() {
+  S.busy = true;
+  try {
+    const res = await api('undo', S.day);
+    if (res.ok) { take(res); setStatus('元に戻しました ' + hm()); } else setStatus(res.error || 'エラー', true);
+  } catch (e) { fail(e.message || e); }
+  finally { S.busy = false; }
+}
+async function zoom(dir) {
+  const nd = dir > 0 ? ZOOMS.find(z => z > S.day) : [...ZOOMS].reverse().find(z => z < S.day);
+  if (!nd) return;
+  const sc = $('sc'), G = geom();
+  const centre = G ? (sc.scrollLeft + sc.clientWidth / 2 - G.x0) / G.dw : null;     // keep the middle date in the middle
+  try { localStorage.setItem('gantt.day', String(nd)); } catch (e) { /* no storage here: not remembered */ }
+  S.busy = true;
+  try { take(await api('get', nd)); } catch (e) { fail(e.message || e); } finally { S.busy = false; }
+  const G2 = geom();
+  if (G2 && centre !== null) sc.scrollLeft = Math.max(0, G2.x0 + centre * G2.dw - sc.clientWidth / 2);
+}
+function scrollToday(quiet) {
+  const G = geom(), t = todayN(), sc = $('sc');
+  if (!G) return;
+  if (t < G.d0 || t > G.d1) { if (!quiet) setStatus('今日は範囲の外'); return; }
+  sc.scrollLeft = Math.max(0, G.x0 + (t - G.d0) * G.dw + G.dw / 2 - sc.clientWidth / 2);
+}
+async function doShare() {
+  const b = $('bShare');
+  b.disabled = true;
+  setStatus('書き出し中…');
+  try {
+    const res = await api('share');
+    if (res.ok) setStatus('書き出し ' + hm()); else setStatus(res.error || 'エラー', true);
+  } catch (e) { fail(e.message || e); }
+  finally { b.disabled = false; }
+}
+$('bAddRow').onclick = () => addRow(S.drawer, {title: '新しい行'});
+$('bAddGroup').onclick = () => addRow(S.drawer, {group: '新しい区切り'});
+$('bUndo').onclick = doUndo;
+$('bOut').onclick = () => zoom(-1);
+$('bIn').onclick = () => zoom(1);
+$('bToday').onclick = () => scrollToday(false);
+$('bShare').onclick = doShare;
+
+// ---- drawer
+function openDrawer(rid, i, focusName) {
+  S.drawer = rid;
+  S.sel = i == null ? null : {r: rid, i: i};
+  S.reveal = i != null;
+  mark();
+  syncDrawer();
+  if (focusName) {
+    const inp = $('drawer').querySelector('.itm.hl [data-k=label]');
+    if (inp) { inp.focus(); inp.select(); }
+  }
+}
+function closeDrawer() { S.drawer = null; S.sel = null; $('drawer').hidden = true; mark(); }
+function drawerHTML(r) {
+  const grp = isGroup(r);
+  let h = '<div class="dh"><b>' + (grp ? '区切り' : '行') + '</b><button class="x" data-act="close" title="閉じる">✕</button></div><div class="dbody">';
+  if (grp) h += '<label class="fl"><span>名前</span><input data-f="group"></label>';
+  else {
+    h += '<label class="fl"><span>項目</span><input data-f="title"></label>'
+       + '<label class="fl"><span>担当</span><input data-f="owner"></label>'
+       + '<div class="fl"><span>リンク</span><input data-f="link"><button class="sm" data-act="openlink">開く</button></div>'
+       + '<label class="fl top"><span>メモ</span><textarea data-f="note"></textarea></label><hr>';
+    const opts = S.kinds.map(k => '<option value="' + k + '">' + esc(S.legend[k]) + '</option>').join('');
+    (r.items || []).forEach((it, i) => {
+      const ms = isMs(it);
+      h += '<div class="itm" data-i="' + i + '"><div class="ih"><span>' + (ms ? '期日 ' : '期間 ') + (i + 1)
+         + '</span><button class="sm" data-act="delitem">削除</button></div>'
+         + '<label class="fl"><span>名前</span><input data-k="label"></label>'
+         + '<label class="fl"><span>種類</span><select data-k="kind">' + opts + '</select></label>'
+         + (ms ? '<label class="fl"><span>日付</span><input type="date" data-k="on"></label>'
+               : '<label class="fl"><span>開始</span><input type="date" data-k="from"></label>'
+               + '<label class="fl"><span>終了</span><input type="date" data-k="to"></label>')
+         + '<label class="fl"><span>メモ</span><input data-k="note"></label></div>';
+    });
+    h += '<div class="btns"><button data-act="addbar">期間を追加</button><button data-act="addms">期日を追加</button></div><hr>';
+  }
+  return h + '<div class="btns"><button data-act="up">上へ</button><button data-act="down">下へ</button>'
+           + '<button data-act="addrow">下に行を追加</button><button data-act="delrow">行を削除</button></div></div>';
+}
+function setVal(inp, v) {
+  v = v == null ? '' : String(v);
+  if (document.activeElement !== inp && inp.value !== v) inp.value = v;     // never under the cursor
+}
+function syncDrawer() {
+  const el = $('drawer');
+  if (!S.drawer) { el.hidden = true; return; }
+  const r = rowOf(S.drawer);
+  if (!r) { closeDrawer(); return; }
+  el.hidden = false;
+  const sig = r.id + '|' + (isGroup(r) ? 'g' : (r.items || []).map(it => isMs(it) ? 'm' : 'b').join(''));
+  if (sig !== S.sig) { S.sig = sig; el.innerHTML = drawerHTML(r); }          // structure changed: rebuild, else patch values
+  for (const inp of el.querySelectorAll('[data-f]')) setVal(inp, r[inp.dataset.f]);
+  el.querySelectorAll('.itm').forEach(box => {
+    const i = +box.dataset.i, it = (r.items || [])[i];
+    if (!it) return;
+    box.classList.toggle('hl', !!S.sel && S.sel.r === r.id && S.sel.i === i);
+    for (const inp of box.querySelectorAll('[data-k]'))
+      setVal(inp, inp.dataset.k === 'kind' ? (S.kinds.includes(it.kind) ? it.kind : 'plan') : it[inp.dataset.k]);
+  });
+  if (S.reveal) { const hl = el.querySelector('.itm.hl'); if (hl) hl.scrollIntoView({block: 'nearest'}); S.reveal = false; }
+}
+async function applyField(t) {
+  const r = rowOf(S.drawer);
+  if (!r) return;
+  if (t.dataset.f) {
+    const f = t.dataset.f, v = t.value.trim();
+    await commit([{op: 'row', row: r.id, set: {[f]: f === 'group' ? v : (v || null)}}]);
+  } else if (t.dataset.k) {
+    const i = +t.closest('.itm').dataset.i, it = r.items[i], k = t.dataset.k;
+    let v = t.value;
+    if (t.type === 'date') {
+      const n = pd(v);
+      if (n === null || n < pd('1990-01-01') || n > pd('2100-12-31')) { syncDrawer(); return; }   // a year still being typed
+    } else v = v.trim() || null;
+    await commit([{op: 'item', row: r.id, i: i, expect: snap(it), set: {[k]: v}}]);
+  }
+}
+const timers = new Map();          // a date field fires `change` for every valid value while typing: apply once it settles
+function later(t) { clearTimeout(timers.get(t)); timers.set(t, setTimeout(() => { timers.delete(t); applyField(t); }, 600)); }
+function flush(t) { if (timers.has(t)) { clearTimeout(timers.get(t)); timers.delete(t); applyField(t); } }
+async function delItem(r, i) {
+  const it = r && r.items[i];
+  if (!it || !confirm('「' + itemName(it) + '」を削除しますか?')) return;
+  const res = await commit([{op: 'del_item', row: r.id, i: i, expect: snap(it)}]);
+  if (res) { S.sel = null; mark(); syncDrawer(); }
+}
+async function addItem(r, ms) {
+  const G = geom(), items = r.items || [];
+  const ends = items.map(it => pd(isMs(it) ? it.on : it.to)).filter(n => n !== null);
+  let start = ends.length ? Math.max(...ends) + 1 : null;
+  if (G && (start === null || start > G.d1)) start = G.d0 + (7 - (G.d0 + 3) % 7) % 7;     // first Monday shown
+  if (start === null) start = todayN();
+  const item = ms ? {on: fd(start), label: '新しい期日', kind: 'due'}
+                  : {from: fd(start), to: fd(start + 6), label: '新しい作業', kind: 'plan'};
+  const res = await commit([{op: 'add_item', row: r.id, item: item}]);
+  if (res) openDrawer(r.id, rowOf(r.id).items.length - 1, true);
+}
+async function act(b) {
+  const r = rowOf(S.drawer), a = b.dataset.act;
+  if (a === 'close') return closeDrawer();
+  if (!r) return;
+  if (a === 'openlink') {
+    const g = [...document.querySelectorAll('#chart g.ttl')].find(x => x.dataset.r === r.id), go = g && g.querySelector('.go');
+    if (!go) return setStatus('リンクなし');
+    return api('open_link', go.dataset.href).catch(e => fail(e.message || e));
+  }
+  if (a === 'delitem') return delItem(r, +b.closest('.itm').dataset.i);
+  if (a === 'addbar') return addItem(r, false);
+  if (a === 'addms') return addItem(r, true);
+  if (a === 'up' || a === 'down') return commit([{op: 'move_row', row: r.id, dir: a === 'up' ? -1 : 1}]);
+  if (a === 'addrow') return addRow(r.id, {title: '新しい行'});
+  if (a === 'delrow') {
+    if (!confirm('行「' + (r.title || r.group || r.id) + '」を削除しますか?')) return;
+    if (await commit([{op: 'del_row', row: r.id}])) closeDrawer();
+  }
+}
+$('drawer').addEventListener('change', e => { if (e.target.type === 'date') later(e.target); else applyField(e.target); });
+$('drawer').addEventListener('focusout', e => flush(e.target));
+$('drawer').addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (b) act(b); });
+
+// ---- chart: drag, click, double-click
+const chart = $('chart');
+function modeAt(g, clientX) {                       // within 5 px of a bar's end: resize (bars of 14 px or more)
+  const b = g.querySelector('rect.b');
+  if (!b) return 'move';
+  const r = b.getBoundingClientRect();
+  if (r.width >= 14) { if (clientX - r.left <= 5) return 'l'; if (r.right - clientX <= 5) return 'r'; }
+  return 'move';
+}
+chart.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  const g = e.target.closest('g.it');
+  if (!g) return;
+  const r = rowOf(g.dataset.r), it = r && r.items[+g.dataset.i];
+  if (!it) return;
+  e.preventDefault();
+  drag = {g: g, rid: r.id, i: +g.dataset.i, it: it, mode: isMs(it) ? 'move' : modeAt(g, e.clientX), x: e.clientX, dd: 0, geo: geom()};
+  S.sel = {r: r.id, i: drag.i};
+  mark();
+  chart.style.cursor = drag.mode === 'move' ? 'move' : 'ew-resize';
+});
+function span(d, dd) {
+  const mo = isMs(d.it), a = pd(mo ? d.it.on : d.it.from), b = mo ? a : pd(d.it.to);
+  return d.mode === 'move' ? [a + dd, b + dd] : d.mode === 'l' ? [a + dd, b] : [a, b + dd];
+}
+function preview() {
+  const G = drag.geo, [a, b] = span(drag, drag.dd), g = drag.g;
+  if (drag.mode === 'move') g.setAttribute('transform', 'translate(' + drag.dd * G.dw + ' 0)');
+  else {
+    const rect = g.querySelector('rect.b'), s = Math.max(a, G.d0), e = Math.min(b, G.d1);
+    rect.setAttribute('x', G.x0 + (s - G.d0) * G.dw);
+    rect.setAttribute('width', (e - s + 1) * G.dw);
+    g.classList.add('rs');
+  }
+  $('tip').textContent = isMs(drag.it) ? md(a) : md(a) + '〜' + md(b) + '（' + (b - a + 1) + '日）';
+}
+window.addEventListener('mousemove', e => {
+  if (!drag) {
+    const g = e.target.closest && e.target.closest('#chart g.it');
+    chart.style.cursor = g ? (modeAt(g, e.clientX) === 'move' ? 'move' : 'ew-resize') : '';
+    return;
+  }
+  const G = drag.geo, mo = isMs(drag.it), a = pd(mo ? drag.it.on : drag.it.from), b = mo ? a : pd(drag.it.to);
+  let lo, hi, dd = Math.round((e.clientX - drag.x) / (G.dw * G.k));
+  if (drag.mode === 'move') { lo = Math.min(0, G.d0 - a); hi = Math.max(0, G.d1 - b); }   // stay inside the range shown
+  else if (drag.mode === 'l') { lo = Math.min(0, G.d0 - a); hi = b - a; }
+  else { lo = a - b; hi = Math.max(0, G.d1 - b); }
+  dd = Math.max(lo, Math.min(hi, dd));
+  const tip = $('tip');
+  tip.style.left = (e.clientX + 14) + 'px';
+  tip.style.top = (e.clientY + 18) + 'px';
+  if (dd !== drag.dd || tip.hidden) { drag.dd = dd; preview(); tip.hidden = false; }
+});
+function endDrag() { $('tip').hidden = true; chart.style.cursor = ''; drag = null; }
+window.addEventListener('mouseup', async () => {
+  if (!drag) return;
+  const d = drag;
+  endDrag();
+  if (d.dd === 0) { paint(); openDrawer(d.rid, d.i); return; }      // no day moved: a click
+  const it = d.it, set = {}, sh = (s, n) => fd(pd(s) + n);
+  if (isMs(it)) set.on = sh(it.on, d.dd);
+  else { if (d.mode !== 'r') set.from = sh(it.from, d.dd); if (d.mode !== 'l') set.to = sh(it.to, d.dd); }
+  if (!await commit([{op: 'item', row: d.rid, i: d.i, expect: snap(it), set: set}])) paint();
+});
+chart.addEventListener('click', e => {
+  const go = e.target.closest('.go');
+  if (go) { api('open_link', go.dataset.href).catch(err => fail(err.message || err)); return; }
+  const t = e.target.closest('g.ttl');
+  if (t) { openDrawer(t.dataset.r, null); return; }
+  if (e.target.closest('rect.hit')) { S.sel = null; mark(); }
+});
+chart.addEventListener('dblclick', async e => {
+  const h = e.target.closest('rect.hit');
+  if (!h) return;
+  const rid = h.closest('g.row').dataset.r, G = geom();
+  const n = G.d0 + Math.floor(((e.clientX - G.left) / G.k - G.x0) / G.dw);
+  const res = await commit([{op: 'add_item', row: rid, item: {from: fd(n), to: fd(n + 6), label: '新しい作業', kind: 'plan'}}]);
+  if (res) openDrawer(rid, rowOf(rid).items.length - 1, true);
+});
+
+// ---- keys
+window.addEventListener('keydown', e => {
+  const tag = (document.activeElement && document.activeElement.tagName) || '';
+  const inField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  if (e.key === 'Escape') { if (drag) { endDrag(); paint(); } else closeDrawer(); return; }
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z' && !inField) { e.preventDefault(); doUndo(); return; }
+  if (e.key === 'Delete' && !inField && S.sel && !drag) { e.preventDefault(); delItem(rowOf(S.sel.r), S.sel.i); }
+});
+
+// ---- start
+(async function () {
+  let day = null;
+  try { day = +localStorage.getItem('gantt.day') || null; } catch (e) { /* no storage here */ }
+  try { take(await api('get', day)); scrollToday(true); } catch (e) { fail(e.message || e); }
+  setInterval(poll, 1000);
+})();
+</script>
+</body>
+</html>

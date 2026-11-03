@@ -17,4 +17,4 @@
 - 新しいツールを足す時は、フォルダごとに `README.md`（目的・前提・起動・データの渡し方）を置き、上の表の README と、core（agent-core-config）の skill と「ツール別の規則」の表にも足す。
 - 第三者のバイナリ・SDK は入れない（各 README に別途導入と書く）。
 - サーバーは既定で `127.0.0.1` で待ち受ける。
-- この repo は public になりうる。push はユーザーが明示した時だけ（core の AGENTS.md「Git push / PR ポリシー」）。
+- この repo は public（2026-11-03 に公開）。push はユーザーが明示した時だけ（core の AGENTS.md「Git push / PR ポリシー」）。

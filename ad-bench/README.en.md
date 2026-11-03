@@ -159,7 +159,7 @@ Voice marks and guided probing:
 | `GET /api/procedure/state` | | procedure, `step` (current id), `say`, `results` so far, `done`, `conclusion`, `run_dir`, `event` |
 | `GET /boards/<board>/<file>` | | `.jpg` / `.png` / `.json` under `boards/` only |
 
-## 手順モード（guided probing）
+## Guided probing (手順モード)
 
 For a person who holds the probe and the board with both hands: the page walks
 through a procedure, shows where to put the probe on the board picture, records
@@ -185,7 +185,7 @@ the reading when the person says 「当てた」, judges it and moves on.
 - A procedure with problems is listed with ⚠ and cannot be started; the page
   shows the problems under the picker.
 
-## エージェントの計測で人がプローブを持つとき（guide.py）
+## When a person holds the probes for an agent (guide.py)
 
 The person cannot do anything else while holding the probes, so an agent script
 must not leave them waiting blind: `guide.probe(prompt, ready)` says the prompt
@@ -199,7 +199,7 @@ The agent follows a run with `GET /api/procedure/state` (or by tailing
 `kind`, `pass`, `values` {ch1, ch2}, `limits`, `answer`, `probes`, `mark`, and
 a last line `{"event": "end" | "abort", "conclusion": ...}`).
 
-### 新しい基板・新しい手順を追加する
+### Adding a new board or procedure
 
 1. Board map (once per board revision), with KiCad 10 installed:
 

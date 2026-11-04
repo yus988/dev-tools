@@ -3,6 +3,7 @@ python test_gantt.py   (the png / pdf tests are skipped when no Edge / Chrome is
 import argparse
 import contextlib
 import copy
+import hashlib
 import io
 import json
 import os
@@ -295,6 +296,204 @@ class RenderTest(unittest.TestCase):
         ET.fromstring(gantt.render({'rows': [{'id': 'a', 'title': 'x', 'items': [{'on': '2026-11-03'}]}]}))
 
 
+class ScaleTest(unittest.TestCase):
+    # sha256 of render(sample(), today='2026-11-10', **kw), taken with the renderer before scale / query / owner existed
+    GOLDEN = [({}, 'efe1eb4265c88eb1050e5768c6015e77fdb2df137cd6ba38676aab9fa39cb7e4'),
+              ({'interactive': True}, 'c2aabbcb4f1e511f0872f664cc6edb8fc2f84d1ea4617dd9aca03cbb55e03c7b'),
+              ({'legend': True}, 'f672d41a1e7d500a22d24b36c3c059a25e2560a5d50d0f6ad6507381e345caa3'),
+              ({'interactive': True, 'legend': True, 'zoom': True},
+               '18278294bdb47288b9c7bbb08463f51c8dabdb8513352f2a5f1f8f499c846bf8'),
+              ({'day': 8}, '53367ec513de4c8813ded2ebc09241b9358824ec2c50551a84d2ac379aeba421'),
+              ({'day': 32, 'legend': True}, '37a0b09a2e1cb52fa5063226d0dd50f0e6a2aa86208f84d3136b22fcde07ed37'),
+              ({'day': 6, 'interactive': True}, 'dabd4ee0f98595478a5ede9b806934d6c208288ae8b9a32b48473f6f27672fb1')]
+
+    def test_default_scale_is_byte_identical_to_before(self):
+        for kw, digest in self.GOLDEN:
+            for extra in ({}, {'scale': 1.0}, {'scale': 1, 'query': '', 'owner': None, 'by_owner': False}):
+                svg = gantt.render(sample(), today='2026-11-10', **dict(kw, **extra))
+                self.assertEqual(hashlib.sha256(svg.encode('utf-8')).hexdigest(), digest, (kw, extra))
+
+    def test_scale_makes_text_rows_and_columns_bigger(self):
+        one = ET.fromstring(gantt.render(small(), interactive=True))
+        big = ET.fromstring(gantt.render(small(), interactive=True, scale=1.5))
+        css = big.find(SVG + 'style').text
+        self.assertIn('font-size:17.25px', css)                  # 11.5 x 1.5
+        self.assertIn('.gantt .sl,.gantt .hw{font-size:15px}', css)
+        self.assertEqual(int(big.get('data-x0')), int(one.get('data-x0')) * 3 // 2)     # title and owner columns
+        self.assertEqual(big.get('data-dw'), '14')                # the day width is separate
+        rows = [g for g in big.iter(SVG + 'g') if g.get('class') == 'row']
+        self.assertEqual([g.get('data-h') for g in rows], ['36', '33', '36'])
+        self.assertEqual(float(big.get('height')), 54 + 36 + 33 + 36 + 1)    # header and rows (no strip) x 1.5, + 1
+        bar = [r for r in big.iter(SVG + 'rect') if r.get('class') == 'b k-plan'][0]
+        self.assertEqual((bar.get('y'), bar.get('height')), ('60', '24'))        # row y 54 + 4 x 1.5, 16 x 1.5
+        self.assertNotRegex(gantt.render(sample(), scale=1.37, day=13.37), r'\d\.\d{3}')
+
+    def test_scale_is_clamped(self):
+        self.assertEqual(gantt.clamp_scale(0.1), 0.8)
+        self.assertEqual(gantt.clamp_scale(7), 2)
+        self.assertEqual(gantt.clamp_scale(1.234), 1.23)
+        self.assertEqual(gantt.render(small(), scale=9), gantt.render(small(), scale=2))
+
+
+class ViewTest(unittest.TestCase):
+    def rows(self, svg):
+        """[(data-r or 'p:<person>', data-g)] of the row groups of an interactive SVG."""
+        return [(g.get('data-r') or 'p:' + g.get('data-p'), g.get('data-g')) for g in ET.fromstring(svg).iter(SVG + 'g')
+                if g.get('class') == 'row']
+
+    def test_people(self):
+        self.assertEqual(gantt.people('田中さん・佐藤（要相談）'), ['田中', '佐藤'])
+        self.assertEqual(gantt.people('佐藤（A-13 候補）'), ['佐藤'])
+        self.assertEqual(gantt.people('A, B/C、D Ｅ　F (x) G((y)z)さん'), ['A', 'B', 'C', 'D', 'Ｅ', 'F', 'G'])
+        self.assertEqual(gantt.people('佐藤・佐藤さん'), ['佐藤'])
+        self.assertEqual(gantt.people('（未定）'), [])
+        self.assertEqual(gantt.people(None), [])
+        d = small()
+        d['rows'] += [{'id': 'c', 'title': 'C', 'owner': 'Y・X（lead）'}, {'id': 'e', 'title': 'E', 'owner': 'Yさん'}]
+        self.assertEqual(gantt.owners(d), [('X', 2), ('Y', 2), ('未定', 1)])      # most rows first, 未定 last
+
+    def test_query(self):
+        d = sample()
+        q = gantt.render(d, interactive=True, query='layout')
+        self.assertEqual(self.rows(q), [('g2', '1'), ('board', None)])          # the group above the row stays
+        marks = [r for r in ET.fromstring(q).iter(SVG + 'rect') if r.get('class') == 'qh']
+        self.assertEqual(len(marks), 1)
+        self.assertIn('.gantt .qh{', q)
+        its = [g for g in ET.fromstring(q).iter(SVG + 'g') if (g.get('class') or '').startswith('it ')]
+        self.assertEqual([(g.get('data-r'), g.get('data-i')) for g in its], [('board', '0'), ('board', '1'), ('board', '2')])
+        self.assertEqual(float(ET.fromstring(q).get('height')), 36 + 12 + 22 + 24 + 1)   # drawn without gaps
+        self.assertEqual(self.rows(gantt.render(d, interactive=True, query='MATERIAL')), [('g2', '1'), ('encl', None)])  # item note
+        self.assertEqual(self.rows(gantt.render(d, interactive=True, query='free text')), [('g2', '1'), ('encl', None)])  # row note
+        self.assertEqual([r for r, _ in self.rows(gantt.render(d, interactive=True, query='ｃ'))][:3], ['g1', 'dates', 'g2'])
+        self.assertEqual(self.rows(gantt.render(d, interactive=True, query='Software')),          # a group's name: all its rows
+                         [('g3', '1'), ('fw', None), ('app', None)])
+        self.assertEqual(self.rows(gantt.render(d, interactive=True, query='nothing like this')), [])
+        self.assertEqual(gantt.render(d, query='  '), gantt.render(d))
+        self.assertNotIn('qh', gantt.render(d, query='Bench'))  # found by the row title: no item is marked
+
+    def test_owner_filter(self):
+        d = sample()
+        self.assertEqual(self.rows(gantt.render(d, interactive=True, owner='B')),
+                         [('g2', '1'), ('board', None), ('g4', '1'), ('test', None)])
+        self.assertEqual(self.rows(gantt.render(d, interactive=True, owner='未定')), [('g4', '1'), ('avail', None)])
+        self.assertEqual(self.rows(gantt.render(d, interactive=True, owner='B', query='bench')), [('g4', '1'), ('test', None)])
+        self.assertEqual(self.rows(gantt.render(d, interactive=True, owner='Software', query='Software')), [])
+        root = ET.fromstring(gantt.render(d, interactive=True, owner='C'))
+        self.assertEqual(int(root.get('data-x0')), 320)          # the owner column stays
+
+    def test_by_person_view_keeps_the_real_ids(self):
+        d = sample()
+        d['rows'][3]['owner'] = 'A・Bさん'                          # Enclosure design: two people
+        before = copy.deepcopy(d)
+        svg = gantt.render(d, interactive=True, by_owner=True)
+        self.assertEqual(d, before)                               # a view: the data is not reordered
+        self.assertEqual(self.rows(svg), [
+            ('p:B', '1'), ('encl', None), ('board', None), ('test', None),
+            ('p:C', '1'), ('fw', None), ('app', None),
+            ('p:PM', '1'), ('dates', None),
+            ('p:A', '1'), ('encl', None),
+            ('p:未定', '1'), ('avail', None)])
+        self.assertIn('>B（3）<', svg)
+        self.assertNotIn('class="ttl" data-r=""', svg)          # a person header is not a row of the data
+        by_id = {r['id']: r for r in d['rows']}
+        for g in ET.fromstring(svg).iter(SVG + 'g'):
+            if (g.get('class') or '').startswith('it '):
+                it = by_id[g.get('data-r')]['items'][int(g.get('data-i'))]
+                self.assertEqual((g.get('data-from'), g.get('data-on')), (it.get('from'), it.get('on')))
+        self.assertEqual(self.rows(gantt.render(d, interactive=True, by_owner=True, owner='A')), [('p:A', '1'), ('encl', None)])
+        self.assertEqual(self.rows(gantt.render(d, interactive=True, by_owner=True, query='bench')),
+                         [('p:B', '1'), ('test', None)])
+        ET.fromstring(gantt.render(d, by_owner=True, legend=True))          # static too
+
+
+class FitTest(unittest.TestCase):
+    def test_non_integer_day_width(self):
+        self.assertEqual(gantt.clamp_day(13.374), 13.37)
+        self.assertEqual(gantt.clamp_day(14.0), 14)
+        self.assertIsInstance(gantt.clamp_day(14.0), int)
+        self.assertEqual((gantt.clamp_day(2.5), gantt.clamp_day(99)), (6, 40))
+        root = ET.fromstring(gantt.render(small(), day=13.37, interactive=True))
+        self.assertEqual(root.get('data-dw'), '13.37')
+        bar = [r for r in root.iter(SVG + 'rect') if r.get('class') == 'b k-plan'][0]
+        self.assertEqual(bar.get('x'), gantt.f(320 + 7 * 13.37))
+        self.assertEqual(bar.get('width'), gantt.f(5 * 13.37))
+        self.assertEqual(gantt.day_of(argparse.Namespace(day=None), {'day': 12.5}), 12.5)
+
+    def test_fit_fills_the_window(self):
+        d = sample()
+        d['rows'] = d['rows'] * 3                                 # 816 px tall at scale 1
+        for w, h in ((1264, 790), (1900, 1000), (1100, 700)):
+            day, u = gantt.fit_view(d, w, h)
+            self.assertTrue(gantt.SCALE_MIN < u < gantt.SCALE_MAX)
+            svg = ET.fromstring(gantt.render(d, day=day, scale=u))
+            sw, sh = float(svg.get('width')), float(svg.get('height'))
+            self.assertLessEqual(sw, w)
+            self.assertGreater(sw, w - 70 * 0.01 - 1)            # 70 days, the day width floored to 0.01
+            self.assertLessEqual(sh, h)
+            self.assertGreater(sh, h - 816 * 0.01 - 2)          # the scale floored to 0.01
+        self.assertEqual(gantt.fit_view(sample(), 1200, 3000)[1], 2)        # few rows: as big as it goes
+        d['rows'] = d['rows'] * 10
+        self.assertEqual(gantt.fit_view(d, 1200, 600)[1], 0.8)      # many rows: the smallest, then scroll
+        self.assertEqual(gantt.fit_view(d, 300, 600)[0], 6)          # narrow: the smallest day, then scroll
+
+
+class RecentTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.home, gantt.HOME = gantt.HOME, os.path.join(self.dir, 'home')     # never the real ~/.gantt
+        self.files = []
+        for i in range(10):
+            p = os.path.join(self.dir, 'p%d.gantt.json' % i)
+            gantt.save(p, dict(small(), title='Plan %d' % i))
+            self.files.append(p)
+
+    def tearDown(self):
+        gantt.HOME = self.home
+        shutil.rmtree(self.dir)
+
+    def test_recent_list(self):
+        self.assertEqual((gantt.recent_files(), gantt.last_file()), ([], None))
+        for p in self.files:
+            gantt.push_recent(p)
+        gantt.push_recent(self.files[3].upper() if os.name == 'nt' else self.files[3])     # again: moves to the top
+        r = gantt.recent_files()
+        self.assertEqual(len(r), gantt.RECENT_KEEP)
+        self.assertTrue(gantt.same_file(r[0], self.files[3]))
+        self.assertEqual([os.path.basename(p).lower() for p in r[1:]], ['p9.gantt.json', 'p8.gantt.json', 'p7.gantt.json',
+                                                                        'p6.gantt.json', 'p5.gantt.json', 'p4.gantt.json',
+                                                                        'p2.gantt.json'])
+        os.remove(self.files[9])                                  # gone files drop out
+        self.assertNotIn(self.files[9], gantt.recent_files())
+        self.assertTrue(gantt.same_file(gantt.last_file(), self.files[3]))
+        last = gantt.read_last()
+        self.assertTrue(gantt.same_file(last['file'], self.files[3]))
+        gantt.write_last(scale=1.5)                                # other keys are kept
+        self.assertEqual(len(gantt.read_last()['recent']), gantt.RECENT_KEEP)
+
+    def test_open_another_file_in_the_window(self):
+        api = gantt.Api(self.files[0])
+        api._opened = gantt.push_recent
+        api.apply([{'op': 'row', 'row': 'b', 'set': {'owner': 'Q'}}])
+        r = api.open_file(self.files[1], None, {'scale': 1.1})
+        self.assertTrue(r['ok'])
+        self.assertEqual((r['title'], r['file'], r['scale']), ('Agent Gantt — Plan 1', 'p1.gantt.json', 1.1))
+        self.assertFalse(api.undo()['ok'])                        # undo belongs to the other file
+        self.assertEqual(gantt.load(self.files[0])['rows'][2]['owner'], 'Q')
+        listed = api.recent()
+        self.assertEqual([(x['title'], x['current']) for x in listed], [('Plan 1', True)])
+        self.assertFalse(api.open_file(os.path.join(self.dir, 'missing.gantt.json'))['ok'])
+        bad = os.path.join(self.dir, 'bad.gantt.json')
+        with open(bad, 'w') as fh:
+            fh.write('[1]')
+        self.assertFalse(api.open_file(bad)['ok'])
+        self.assertEqual(api.get()['file'], 'p1.gantt.json')       # still the last good one
+
+    def test_window_title(self):
+        self.assertEqual(gantt.window_title({'title': 'X'}, 'a.gantt.json'), 'Agent Gantt — X')
+        self.assertEqual(gantt.window_title({}, '/d/plan.gantt.json'), 'Agent Gantt — plan')
+        self.assertEqual(gantt.window_title(None, None), 'Agent Gantt')
+
+
 class CheckTest(unittest.TestCase):
     def test_sample_is_clean(self):
         self.assertEqual(gantt.check(sample())[0], [])
@@ -487,7 +686,48 @@ class ApiTest(unittest.TestCase):
 
     def test_public_names_are_the_api(self):
         names = [n for n in dir(self.api) if not n.startswith('_')]
-        self.assertEqual(sorted(names), sorted(gantt.Handler.METHODS))
+        self.assertEqual(sorted(names), sorted(gantt.Handler.METHODS + gantt.Handler.APP_ONLY))
+        self.assertFalse(set(gantt.Handler.APP_ONLY) & set(gantt.Handler.METHODS))     # no file switching over HTTP
+
+    def test_view_argument(self):
+        g = self.api.get(None, {'query': 'LAYOUT', 'scale': 1.5})
+        self.assertEqual((g['shown'], g['total'], g['scale']), (1, 7, 1.5))
+        self.assertIn('class="qh"', g['svg'])
+        self.assertEqual([p for p, _ in g['owners']], ['B', 'C', 'PM', 'A', '未定'])
+        g = self.api.get(None, {'owner': 'C', 'by_owner': True})
+        self.assertEqual(g['shown'], 2)
+        self.assertIn('data-p="C"', g['svg'])
+        g = self.api.get(None, {'fit': True, 'w': 1200, 'h': 700})
+        self.assertEqual((g['day'], g['scale']), gantt.fit_view(sample(), 1200, 700))
+        self.assertEqual(g['fitted'], [1200, 700])
+        self.assertIsNone(self.api.get()['fitted'])
+        self.assertLessEqual(float(ET.fromstring(g['svg']).get('width')), 1200)
+        self.assertEqual(self.api.get(13.5)['day'], 13.5)
+        r = self.move()                                          # the view also comes back from apply
+        self.assertEqual(r['scale'], 1.3)                        # the window's default size
+
+    def test_prefs(self):
+        kept = []
+        self.api._remember = lambda **kw: kept.append(kw)
+        self.assertEqual(self.api.prefs(), {'day': 14, 'scale': 1.3, 'fit': True, 'by_owner': False})
+        p = self.api.prefs({'scale': 9, 'fit': False, 'day': 'x', 'by_owner': 1, 'other': 2})
+        self.assertEqual(p, {'day': 14, 'scale': 2, 'fit': False, 'by_owner': False})
+        self.assertEqual(kept, [{'scale': 2, 'fit': False}])
+        self.assertEqual(self.api.get()['scale'], 2)
+        self.assertEqual(gantt.Api(self.path, 10, {'scale': 1.1, 'fit': False}).prefs()['scale'], 1.1)
+
+    def test_without_a_file(self):
+        api = gantt.Api(None)
+        self.assertEqual(api.get(), {'nofile': True})
+        self.assertIsNone(api.poll('x'))
+        self.assertFalse(api.apply([])['ok'])
+        self.assertFalse(api.undo()['ok'])
+        self.assertFalse(api.share()['ok'])
+        self.assertFalse(api.pick()['ok'])                       # no window here
+        r = api.open_file(self.path)
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['title'], 'Agent Gantt — Sample product plan')
+        self.assertTrue(api.get()['svg'].startswith('<svg'))
 
 
 class ServerTest(unittest.TestCase):

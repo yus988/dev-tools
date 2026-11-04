@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""gantt: a small Gantt chart. An agent writes a JSON file, a person adjusts it in a desktop window (drag bars, edit
-fields), and the same renderer writes a static SVG / PNG / PDF to share or embed in an HTML report.
+"""gantt (Agent Gantt): a small Gantt chart. An agent writes a JSON file, a person adjusts it in a desktop window (drag
+bars, edit fields), and the same renderer writes a static SVG / PNG / PDF to share or embed in an HTML report.
 
-  python gantt.py app [FILE] [--day N]                  desktop window (pywebview)
+  python gantt.py app [FILE] [--day N]                  desktop window (pywebview); no FILE: the last one, else a dialog
   python gantt.py serve FILE [--port 8195] [--host H]   the same UI in a browser
   python gantt.py svg FILE [-o OUT] [--day N] [--no-legend]
   python gantt.py png FILE [-o OUT] [--day N] [--scale 2]    needs Edge / Chrome (env GANTT_BROWSER)
@@ -11,7 +11,7 @@ fields), and the same renderer writes a static SVG / PNG / PDF to share or embed
   python gantt.py embed FILE PAGE [--day N]             SVG between <!-- gantt:begin --> and <!-- gantt:end -->
   python gantt.py changes FILE [--peek] [--all]         what the person changed since the agent last looked
   python gantt.py check FILE                            validate
-  python gantt.py selftest FILE                         open the app hidden, check that the page loads
+  python gantt.py selftest FILE                         open the app hidden and drive it (nothing is written)
 
 FILE is a *.gantt.json (README.md). Standard library only; app / selftest import pywebview.
 """
@@ -20,6 +20,7 @@ import copy
 import datetime as dt
 import html
 import json
+import math
 import os
 import pathlib
 import re
@@ -28,6 +29,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -526,27 +528,150 @@ KIND_CSS = {
     'off': 'fill:var(--line,#d7dbe3);stroke:none',
     'done': 'fill:var(--ok,#e6f4ea);stroke:var(--oks,#4b9a5f)',
 }
-CSS = (
-    '.gantt{font-family:var(--gantt-font,"Yu Gothic UI","Meiryo","Hiragino Sans",sans-serif);font-size:11.5px}'
-    '.gantt text{fill:var(--ink,#1d2330)}.gantt .mu{fill:var(--muted,#5b6475)}.gantt .bd{font-weight:700}'
-    '.gantt .g{font-weight:700;fill:var(--gantt-group,var(--ink,#1d2330))}'
-    '.gantt .sl,.gantt .hw{font-size:10px}.gantt .hm{font-size:11px;font-weight:700}'
-    '.gantt .lw{fill:var(--warns,#d08a2a)}.gantt .se{text-anchor:end}'
-    '.gantt a.lnk:hover text{text-decoration:underline}.gantt .go{fill:var(--accent,#a3385f)}'
-    '.gantt .bg{fill:var(--card,#fff)}.gantt .hd,.gantt .grp{fill:var(--head,#eef1f6)}'
-    '.gantt .we{fill:var(--line,#d7dbe3);fill-opacity:.25}.gantt .off{fill:var(--line,#d7dbe3);fill-opacity:.4}'
-    '.gantt .gw,.gantt .gd,.gantt .sep{fill:none;stroke:var(--line,#d7dbe3);stroke-width:1}.gantt .gd{stroke-opacity:.45}'
-    '.gantt .ln{fill:none;stroke:var(--warns,#d08a2a);stroke-width:1.2;stroke-dasharray:4 3}'
-    '.gantt .td{fill:none;stroke:var(--accent,#a3385f);stroke-width:1.5;pointer-events:none}'
-    '.gantt .p1{fill:var(--card,#fff)}.gantt .p2{fill:var(--rec,#e8f0fb)}.gantt .p3{fill:var(--line,#d7dbe3)}'
-    '.gantt .b,.gantt .m{stroke-width:1}'
-    + ''.join('.gantt .b.k-%s,.gantt .m.k-%s{%s}' % (k, k, v) for k, v in KIND_CSS.items()))
+HEAD_H, ROW_H, GROUP_H, STRIP_H, FS = 36, 24, 22, 12, 11.5
+SCALE_MIN, SCALE_MAX = 0.8, 2.0                             # the whole chart's size (rows, header, text), 1 = as before
+
+
+def css(u=1.0):
+    """The chart's style sheet; u scales the font sizes."""
+    return (
+        '.gantt{font-family:var(--gantt-font,"Yu Gothic UI","Meiryo","Hiragino Sans",sans-serif);font-size:%spx}' % f(FS * u)
+        + '.gantt text{fill:var(--ink,#1d2330)}.gantt .mu{fill:var(--muted,#5b6475)}.gantt .bd{font-weight:700}'
+        '.gantt .g{font-weight:700;fill:var(--gantt-group,var(--ink,#1d2330))}'
+        + '.gantt .sl,.gantt .hw{font-size:%spx}.gantt .hm{font-size:%spx;font-weight:700}' % (f(10 * u), f(11 * u))
+        + '.gantt .lw{fill:var(--warns,#d08a2a)}.gantt .se{text-anchor:end}'
+        '.gantt a.lnk:hover text{text-decoration:underline}.gantt .go{fill:var(--accent,#a3385f)}'
+        '.gantt .bg{fill:var(--card,#fff)}.gantt .hd,.gantt .grp{fill:var(--head,#eef1f6)}'
+        '.gantt .we{fill:var(--line,#d7dbe3);fill-opacity:.25}.gantt .off{fill:var(--line,#d7dbe3);fill-opacity:.4}'
+        '.gantt .gw,.gantt .gd,.gantt .sep{fill:none;stroke:var(--line,#d7dbe3);stroke-width:1}.gantt .gd{stroke-opacity:.45}'
+        '.gantt .ln{fill:none;stroke:var(--warns,#d08a2a);stroke-width:1.2;stroke-dasharray:4 3}'
+        '.gantt .td{fill:none;stroke:var(--accent,#a3385f);stroke-width:1.5;pointer-events:none}'
+        '.gantt .p1{fill:var(--card,#fff)}.gantt .p2{fill:var(--rec,#e8f0fb)}.gantt .p3{fill:var(--line,#d7dbe3)}'
+        '.gantt .b,.gantt .m{stroke-width:1}'
+        + ''.join('.gantt .b.k-%s,.gantt .m.k-%s{%s}' % (k, k, v) for k, v in KIND_CSS.items()))
+
+
+CSS = css()
 CSS_UI = '.gantt .hov,.gantt .hit,.gantt .tc{fill:transparent}.gantt .hov{pointer-events:none}'
+CSS_FIND = '.gantt .qh{fill:var(--gantt-find,#ffd54a);pointer-events:none}'     # behind the items a search found
 DEFS = ('<defs><pattern id="gt-h" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
         '<rect class="p1" width="6" height="6"/><rect class="p2" width="3" height="6"/></pattern>'
         '<pattern id="gt-w" width="5" height="6" patternUnits="userSpaceOnUse"><rect class="p3" width="2" height="6"/>'
         '</pattern></defs>')
-HEAD_H, ROW_H, GROUP_H, STRIP_H, FS = 36, 24, 22, 12, 11.5
+
+
+def num(v):
+    """A finite int / float (not a bool)."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _tidy(v):
+    return int(v) if v == int(v) else v
+
+
+def clamp_day(day):
+    """Pixels per day: 6-40, to 0.01 px (the window's fit mode chooses any width)."""
+    return _tidy(max(6.0, min(40.0, round(float(day), 2))))
+
+
+def clamp_scale(scale):
+    """The whole chart's scale: 0.8-2.0, to 0.01."""
+    return _tidy(max(SCALE_MIN, min(SCALE_MAX, round(float(scale), 2))))
+
+
+# ---------------------------------------------------------------- people, search, the rows shown
+UNSET = '未定'                                              # the person of a row without an owner
+_PAREN = re.compile(r'[（(][^（）()]*[）)]')
+_SPLIT = re.compile(r'[・、,，/／\s]+')
+
+
+def people(owner):
+    """The people in an owner string: text in （） / () dropped, split on ・ 、 , / and spaces, a trailing さん dropped.
+    '田中さん・佐藤（要相談）' -> ['田中', '佐藤']."""
+    if not isinstance(owner, str):
+        return []
+    s, before = owner, None
+    while s != before:                                      # nested parentheses: from the inside out
+        before, s = s, _PAREN.sub(' ', s)
+    out = []
+    for p in _SPLIT.split(s):
+        p = p.strip()
+        if p.endswith('さん'):
+            p = p[:-2].strip()
+        if p and p not in out:
+            out.append(p)
+    return out
+
+
+def people_of(row):
+    return people(row.get('owner')) or [UNSET]
+
+
+def owners(data):
+    """[(person, rows)] over the rows that are not groups: most rows first, then in the order met; 未定 (rows without
+    an owner) last."""
+    count, first = {}, {}
+    for r in data.get('rows') or []:
+        if isinstance(r, dict) and not is_group(r):
+            for p in people_of(r):
+                count[p] = count.get(p, 0) + 1
+                first.setdefault(p, len(first))
+    return sorted(count.items(), key=lambda pc: (pc[0] == UNSET, -pc[1], first[pc[0]]))
+
+
+class Person(dict):
+    """A person's header row in the by-person view (not in the data)."""
+
+
+def _norm(s):
+    return unicodedata.normalize('NFKC', s).casefold()
+
+
+def _has(v, q):
+    return isinstance(v, str) and q in _norm(v)
+
+
+def view_rows(data, query=None, owner=None, by_owner=False):
+    """The rows the chart shows, in order: [(row, indices of the items the search found)]. The rows are the data's own
+    dicts (their ids and item indices stay the real ones); a person header of the by-person view is a Person.
+    query: rows whose title, owner or note, or an item's label or note, contain it (ignoring case and full / half
+    width); a group stays when a row under it stays, and a group whose name contains it keeps all its rows.
+    owner: rows of that person (UNSET: rows without an owner). by_owner: the rows under a header per person, in their
+    order in the data; a row of several people is under each of them."""
+    rows = [r for r in data.get('rows') or [] if isinstance(r, dict)]
+    q = _norm(query).strip() if isinstance(query, str) else ''
+    if not q and not owner and not by_owner:
+        return [(r, ()) for r in rows]
+    out, group, gmatch = [], None, False
+    for r in rows:
+        if is_group(r):
+            group, gmatch = r, bool(q) and _has(r.get('group'), q)
+            if gmatch and not owner:
+                out.append((r, ()))
+                group = None
+            continue
+        if owner and owner not in people_of(r):
+            continue
+        hits = ()
+        if q:
+            hits = tuple(i for i, it in enumerate(r.get('items') or []) if isinstance(it, dict)
+                         and (_has(it.get('label'), q) or _has(it.get('note'), q)))
+            if not (hits or gmatch or any(_has(r.get(k), q) for k in ('title', 'owner', 'note'))):
+                continue
+        if group is not None:
+            out.append((group, ()))
+            group = None
+        out.append((r, hits))
+    if not by_owner:
+        return out
+    flat = [(r, h) for r, h in out if not is_group(r)]
+    res = []
+    for p, _ in owners(data):
+        mine = [(r, h) for r, h in flat if p in people_of(r)] if not owner or p == owner else []
+        if mine:
+            res.append((Person(group='%s（%d）' % (p, len(mine)), person=p), ()))
+            res += mine
+    return res
 
 
 def date_range(data):
@@ -568,13 +693,52 @@ def date_range(data):
     return d0, min(d1, d0 + dt.timedelta(days=1499))
 
 
-def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=None, zoom=False):
-    day = max(6, min(40, int(day)))
+def _marks(data, d0, d1):
+    """The off ranges [((from, to) clipped, label)] and the lines [(date, label)] inside d0..d1."""
+    def clip(a, b):
+        a, b = max(a, d0), min(b, d1)
+        return (a, b) if a <= b else None
+    offs = [(clip(pd(o.get('from')), pd(o.get('to'))), o.get('label')) for o in data.get('off') or []
+            if isinstance(o, dict) and pd(o.get('from')) and pd(o.get('to'))]
+    offs = [(c, lb) for c, lb in offs if c]
+    lines = [(pd(o.get('on')), o.get('label')) for o in data.get('lines') or [] if isinstance(o, dict)]
+    lines = [(d, lb) for d, lb in lines if d and d0 <= d <= d1]
+    return offs, lines
+
+
+def _columns(data):
+    """Width of the title and owner columns at scale 1."""
+    rows = [r for r in data.get('rows') or [] if isinstance(r, dict)]
+    return int(data.get('label_width') or 240), 80 if any(r.get('owner') for r in rows) else 0
+
+
+def fit_view(data, width, height, by_owner=False):
+    """(day, scale) that make the chart fill width x height px: the scale makes all rows (no search, no person filter)
+    fill the height, within 0.8-2.0 (below that the chart scrolls); then the day width makes the whole date range fill
+    the width, within 6-40."""
     d0, d1 = date_range(data)
     nd = (d1 - d0).days + 1
-    rows = [r for r in data.get('rows') or [] if isinstance(r, dict)]
-    tcol = int(data.get('label_width') or 240)
-    ocol = 80 if any(r.get('owner') for r in rows) else 0
+    offs, lines = _marks(data, d0, d1)
+    rows = [r for r, _ in view_rows(data, by_owner=by_owner)]
+    tall = HEAD_H + (STRIP_H if any(lb for _, lb in offs + lines) else 0) + sum(
+        GROUP_H if is_group(r) else ROW_H for r in rows)
+    u = clamp_scale(math.floor((float(height) - 1.5) / tall * 100) / 100)
+    tcol, ocol = _columns(data)
+    day = clamp_day(math.floor((float(width) - 0.5 - (tcol + ocol) * u) / nd * 100) / 100)
+    return day, u
+
+
+def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=None, zoom=False, scale=1.0, query=None,
+          owner=None, by_owner=False):
+    day = clamp_day(day)
+    u = clamp_scale(scale)                                  # every length below is at scale 1 times u
+    d0, d1 = date_range(data)
+    nd = (d1 - d0).days + 1
+    shown = view_rows(data, query, owner, by_owner)
+    rows = [r for r, _ in shown]
+    tcol, ocol = _columns(data)
+    tcol, ocol = tcol * u, ocol * u
+    fs, head = FS * u, HEAD_H * u
     x0 = tcol + ocol
     W = x0 + nd * day
     day1 = dt.timedelta(days=1)
@@ -586,17 +750,13 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
         a, b = max(a, d0), min(b, d1)
         return (a, b) if a <= b else None
 
-    offs = [(clip(pd(o.get('from')), pd(o.get('to'))), o.get('label')) for o in data.get('off') or []
-            if isinstance(o, dict) and pd(o.get('from')) and pd(o.get('to'))]
-    offs = [(c, lb) for c, lb in offs if c]
-    lines = [(pd(o.get('on')), o.get('label')) for o in data.get('lines') or [] if isinstance(o, dict)]
-    lines = [(d, lb) for d, lb in lines if d and d0 <= d <= d1]
-    strip = STRIP_H if any(lb for _, lb in offs + lines) else 0
-    by = HEAD_H
+    offs, lines = _marks(data, d0, d1)
+    strip = STRIP_H * u if any(lb for _, lb in offs + lines) else 0
+    by = head
     y = by + strip
     ys = []
     for r in rows:
-        h = GROUP_H if is_group(r) else ROW_H
+        h = (GROUP_H if is_group(r) else ROW_H) * u
         ys.append((y, h))
         y += h
     bend = y
@@ -609,42 +769,43 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
                 used.append(k)
     used = [k for k in KINDS if k in used]
     lg = legend_map(data)
-    leg, lx, ly = [], 8.0, bend + 8
+    leg, lx, ly = [], 8.0 * u, bend + 8 * u
     if legend and used:
         for k in used:
-            w = 19 + tw(lg[k], 11) + 16
-            if lx > 8 and lx + w > W - 8:
-                lx, ly = 8.0, ly + 18
-            leg.append('<rect class="b k-%s" x="%s" y="%s" width="14" height="10" rx="2"/>'
-                       '<text class="mu" x="%s" y="%s">%s</text>' % (k, f(lx), f(ly), f(lx + 19), f(ly + 9), esc(lg[k])))
+            w = 19 * u + tw(lg[k], 11 * u) + 16 * u
+            if lx > 8 * u and lx + w > W - 8 * u:
+                lx, ly = 8.0 * u, ly + 18 * u
+            leg.append('<rect class="b k-%s" x="%s" y="%s" width="%s" height="%s" rx="%s"/>'
+                       '<text class="mu" x="%s" y="%s">%s</text>' % (k, f(lx), f(ly), f(14 * u), f(10 * u), f(2 * u),
+                                                                    f(lx + 19 * u), f(ly + 9 * u), esc(lg[k])))
             lx += w
-        H = ly + 18
+        H = ly + 18 * u
     else:
         H = bend + 1
 
     o = []
     P = o.append
     # --- backgrounds, shades, grid
-    P('<rect class="bg" x="0" y="%d" width="%s" height="%s"/><rect class="hd" x="0" y="0" width="%s" height="%d"/>'
-      % (by, f(W), f(bh), f(W), HEAD_H))
-    g = ''.join('M0 %s h%s v%d h-%s z' % (f(yy), f(W), h, f(W)) for r, (yy, h) in zip(rows, ys) if is_group(r))
+    P('<rect class="bg" x="0" y="%s" width="%s" height="%s"/><rect class="hd" x="0" y="0" width="%s" height="%s"/>'
+      % (f(by), f(W), f(bh), f(W), f(head)))
+    g = ''.join('M0 %s h%s v%s h-%s z' % (f(yy), f(W), f(h), f(W)) for r, (yy, h) in zip(rows, ys) if is_group(r))
     if g:
         P('<path class="grp" d="%s"/>' % g)
     we, d = [], d0
     while d <= d1:
         if d.weekday() >= 5:
             n = 2 if d.weekday() == 5 and d + day1 <= d1 else 1
-            we.append('M%s %d h%s v%s h-%s z' % (f(X(d)), by, f(n * day), f(bh), f(n * day)))
+            we.append('M%s %s h%s v%s h-%s z' % (f(X(d)), f(by), f(n * day), f(bh), f(n * day)))
             d += dt.timedelta(days=n)
         else:
             d += day1
     if we:
         P('<path class="we" d="%s"/>' % ''.join(we))
     if offs:
-        P('<path class="off" d="%s"/>' % ''.join('M%s %d h%s v%s h-%s z' % (f(X(a)), by, f((b - a).days * day + day), f(bh),
+        P('<path class="off" d="%s"/>' % ''.join('M%s %s h%s v%s h-%s z' % (f(X(a)), f(by), f((b - a).days * day + day), f(bh),
                                                                               f((b - a).days * day + day)) for (a, b), _ in offs))
     mon = d0 + dt.timedelta(days=(7 - d0.weekday()) % 7)
-    gw = ['M%s 18 V%s' % (f(X(m)), f(bend)) for m in (mon + dt.timedelta(days=7 * i) for i in range(nd // 7 + 1))
+    gw = ['M%s %s V%s' % (f(X(m)), f(18 * u), f(bend)) for m in (mon + dt.timedelta(days=7 * i) for i in range(nd // 7 + 1))
           if m <= d1 and X(m) > x0]
     gw.append('M%s 0 V%s' % (f(x0), f(bend)))
     months = []
@@ -653,38 +814,40 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
         nxt = (d.replace(day=1) + dt.timedelta(days=32)).replace(day=1)
         months.append((d, min(nxt - day1, d1)))
         d = nxt
-    gw += ['M%s 0 V18' % f(X(a)) for a, _ in months[1:]]
+    gw += ['M%s 0 V%s' % (f(X(a)), f(18 * u)) for a, _ in months[1:]]
     P('<path class="gw" d="%s"/>' % ''.join(gw))
     if day >= 12:
-        P('<path class="gd" d="%s"/>' % ''.join('M%s %d V%s' % (f(X(d0 + dt.timedelta(days=i))), by, f(bend))
+        P('<path class="gd" d="%s"/>' % ''.join('M%s %s V%s' % (f(X(d0 + dt.timedelta(days=i))), f(by), f(bend))
                                                   for i in range(1, nd) if (d0 + dt.timedelta(days=i)).weekday() != 0))
-    P('<path class="sep" d="M0 18 H%s M0 %d H%s%s"/>' % (f(W), HEAD_H, f(W),
+    P('<path class="sep" d="M0 %s H%s M0 %s H%s%s"/>' % (f(18 * u), f(W), f(head), f(W),
                                                          ''.join(' M0 %s H%s' % (f(yy + h), f(W)) for yy, h in ys)))
     if lines:
-        P('<path class="ln" d="%s"/>' % ''.join('M%s %d V%s' % (f(X(d) + day / 2), by, f(bend)) for d, _ in lines))
+        P('<path class="ln" d="%s"/>' % ''.join('M%s %s V%s' % (f(X(d) + day / 2), f(by), f(bend)) for d, _ in lines))
 
     # --- rows
-    for r, (y, h) in zip(rows, ys):
-        rid, grp, cy = str(r.get('id', '')), is_group(r), y + h / 2 + 4
+    for (r, hits), (y, h) in zip(shown, ys):
+        rid, grp, cy = str(r.get('id', '')), is_group(r), y + h / 2 + 4 * u
+        person = isinstance(r, Person)
         if interactive:
-            P('<g class="row" data-r="%s" data-y="%s" data-h="%d"%s><rect class="hov" x="0" y="%s" width="%s" height="%d"/>'
-              % (esc(rid), f(y), h, ' data-g="1"' if grp else '', f(y), f(W), h))
+            P('<g class="row" %s data-y="%s" data-h="%s"%s><rect class="hov" x="0" y="%s" width="%s" height="%s"/>'
+              % ('data-p="%s"' % esc(r['person']) if person else 'data-r="%s"' % esc(rid), f(y), f(h),
+                 ' data-g="1"' if grp else '', f(y), f(W), f(h)))
             if not grp:
-                P('<rect class="hit" x="%s" y="%s" width="%s" height="%d"/>' % (f(x0), f(y), f(W - x0), h))
+                P('<rect class="hit" x="%s" y="%s" width="%s" height="%s"/>' % (f(x0), f(y), f(W - x0), f(h)))
         name = str((r.get('group') if grp else r.get('title')) or '')
         url = None if grp else resolve_link(r.get('link'), data.get('link_base'), base_dir)
-        s, cut = fit(name, tcol - 14 - (14 if url and interactive else 0), FS)
-        t = '<text class="%s" x="8" y="%s">%s%s</text>' % ('g' if grp else 't', f(cy), esc(s),
-                                                           '<title>%s</title>' % esc(name) if cut else '')
-        if interactive:
-            P('<g class="ttl" data-r="%s"><rect class="tc" x="0" y="%s" width="%d" height="%d"/>%s%s</g>'
-              % (esc(rid), f(y), tcol, h, t, '<text class="go" data-href="%s" x="%d" y="%s">↗</text>'
-                 % (esc(url), tcol - 14, f(cy)) if url else ''))
+        s, cut = fit(name, tcol - 14 * u - (14 * u if url and interactive else 0), fs)
+        t = '<text class="%s" x="%s" y="%s">%s%s</text>' % ('g' if grp else 't', f(8 * u), f(cy), esc(s),
+                                                            '<title>%s</title>' % esc(name) if cut else '')
+        if interactive and not person:
+            P('<g class="ttl" data-r="%s"><rect class="tc" x="0" y="%s" width="%s" height="%s"/>%s%s</g>'
+              % (esc(rid), f(y), f(tcol), f(h), t, '<text class="go" data-href="%s" x="%s" y="%s">↗</text>'
+                 % (esc(url), f(tcol - 14 * u), f(cy)) if url else ''))
         else:
             P('<a class="lnk" href="%s" target="_blank">%s</a>' % (esc(url), t) if url else t)
         if ocol and r.get('owner'):
-            s, cut = fit(str(r['owner']), ocol - 10, FS)
-            P('<text class="mu" x="%d" y="%s">%s%s</text>' % (tcol + 6, f(cy), esc(s),
+            s, cut = fit(str(r['owner']), ocol - 10 * u, fs)
+            P('<text class="mu" x="%s" y="%s">%s%s</text>' % (f(tcol + 6 * u), f(cy), esc(s),
                                                               '<title>%s</title>' % esc(r['owner']) if cut else ''))
         # items: geometry first (the free space to the right of a label ends at the next item)
         geo = []
@@ -694,7 +857,7 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
                 a = pd(it['on'])
                 if a and d0 <= a <= d1:
                     cx = X(a) + day / 2
-                    geo.append((idx, it, k, 'm', cx - 6, cx + 6))
+                    geo.append((idx, it, k, 'm', cx - 6 * u, cx + 6 * u))
             else:
                 a, b = pd(it.get('from')), pd(it.get('to'))
                 c = clip(a, b) if a and b and a <= b else None
@@ -707,24 +870,25 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
             cls = 'bt' + (' bd' if k in ('due', 'ext') else ' mu' if k in ('wait', 'off') else '')
             text, tip = '', esc(it['note']) if it.get('note') else ''
             if shape == 'b':
-                inside = xr - xl - 8
+                inside = xr - xl - 8 * u
                 if not label:
                     pass
-                elif tw(label, FS) <= inside:
-                    text = '<text class="%s" x="%s" y="%s">%s</text>' % (cls, f(xl + 4), f(y + 16), esc(label))
-                elif tw(label, FS) <= nxt - xr - 6:         # not in the bar: to its right, muted
-                    text = '<text class="bt mu" x="%s" y="%s">%s</text>' % (f(xr + 4), f(y + 16), esc(label))
+                elif tw(label, fs) <= inside:
+                    text = '<text class="%s" x="%s" y="%s">%s</text>' % (cls, f(xl + 4 * u), f(y + 16 * u), esc(label))
+                elif tw(label, fs) <= nxt - xr - 6 * u:     # not in the bar: to its right, muted
+                    text = '<text class="bt mu" x="%s" y="%s">%s</text>' % (f(xr + 4 * u), f(y + 16 * u), esc(label))
                 else:
-                    s, _ = fit(label, inside, FS)
+                    s, _ = fit(label, inside, fs)
                     if s:
-                        text = '<text class="%s" x="%s" y="%s">%s<title>%s</title></text>' % (cls, f(xl + 4), f(y + 16), esc(s), esc(label))
+                        text = '<text class="%s" x="%s" y="%s">%s<title>%s</title></text>' % (
+                            cls, f(xl + 4 * u), f(y + 16 * u), esc(s), esc(label))
                     else:
                         tip = esc(label)                    # not even the ellipsis fits: the full text as a tooltip
             elif label:
-                room = nxt - xr - 5
-                s, cut = fit(label, room, FS)
+                room = nxt - xr - 5 * u
+                s, cut = fit(label, room, fs)
                 if s:
-                    text = '<text class="%s" x="%s" y="%s">%s%s</text>' % (cls, f(xr + 3), f(y + 16), esc(s),
+                    text = '<text class="%s" x="%s" y="%s">%s%s</text>' % (cls, f(xr + 3 * u), f(y + 16 * u), esc(s),
                                                                          '<title>%s</title>' % esc(label) if cut else '')
                 else:
                     tip = esc(label)
@@ -733,11 +897,16 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
             attrs += ' data-on="%s"' % esc(it['on']) if shape == 'm' else ' data-from="%s" data-to="%s"' % (esc(it['from']), esc(it['to']))
             if interactive:
                 P('<g class="it k-%s"%s>' % (k, attrs))
+            if idx in hits:                                 # found by the search: a marker behind it
+                P('<rect class="qh" x="%s" y="%s" width="%s" height="%s" rx="%s"/>'
+                  % (f(xl - 3 * u), f(y + 1.5 * u), f(xr - xl + 6 * u), f(21 * u), f(4 * u)))
             if shape == 'b':
-                P('<rect class="b k-%s" x="%s" y="%s" width="%s" height="16" rx="3">%s</rect>' % (k, f(xl), f(y + 4), f(xr - xl), tip))
+                P('<rect class="b k-%s" x="%s" y="%s" width="%s" height="%s" rx="%s">%s</rect>'
+                  % (k, f(xl), f(y + 4 * u), f(xr - xl), f(16 * u), f(3 * u), tip))
             else:
                 P('<path class="m k-%s" d="M%s %sL%s %sL%s %sL%s %sz">%s</path>'
-                  % (k, f(xl), f(y + 12), f(xl + 6), f(y + 6), f(xr), f(y + 12), f(xl + 6), f(y + 18), tip))
+                  % (k, f(xl), f(y + 12 * u), f(xl + 6 * u), f(y + 6 * u), f(xr), f(y + 12 * u), f(xl + 6 * u),
+                     f(y + 18 * u), tip))
             if text:
                 P(text)
             if interactive:
@@ -748,40 +917,45 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
     # --- today, header text, strip labels, legend
     t0 = today if isinstance(today, dt.date) else pd(today) or dt.date.today()
     if d0 <= t0 <= d1:
-        P('<path class="td" d="M%s %d V%s"/>' % (f(X(t0) + day / 2), by, f(bend)))
+        P('<path class="td" d="M%s %s V%s"/>' % (f(X(t0) + day / 2), f(by), f(bend)))
     for a, b in months:
         label = '%d月' % a.month
-        if tw(label, 11) <= (b - a).days * day + day - 6:
-            P('<text class="hm" x="%s" y="13">%s</text>' % (f(X(a) + 4), label))
+        if tw(label, 11 * u) <= (b - a).days * day + day - 6 * u:
+            P('<text class="hm" x="%s" y="%s">%s</text>' % (f(X(a) + 4 * u), f(13 * u), label))
     for i in range(nd // 7 + 1):
         m = mon + dt.timedelta(days=7 * i)
-        if m <= d1 and tw(md(m), 10) <= 7 * day - 4:
-            P('<text class="hw mu" x="%s" y="31">%s</text>' % (f(X(m) + 3), md(m)))
+        if m <= d1 and tw(md(m), 10 * u) <= 7 * day - 4 * u:
+            P('<text class="hw mu" x="%s" y="%s">%s</text>' % (f(X(m) + 3 * u), f(31 * u), md(m)))
     if strip:
         for (a, b), lb in offs:
-            s, _ = fit(str(lb or ''), (b - a).days * day + day - 6, 10) if lb else ('', False)
+            s, _ = fit(str(lb or ''), (b - a).days * day + day - 6 * u, 10 * u) if lb else ('', False)
             if s:
-                P('<text class="sl mu" x="%s" y="%s">%s</text>' % (f(X(a) + 3), by + 9, esc(s)))
+                P('<text class="sl mu" x="%s" y="%s">%s</text>' % (f(X(a) + 3 * u), f(by + 9 * u), esc(s)))
         for d, lb in lines:                    # left of the line, so it stays clear of a holiday label right after it
             xl, lb = X(d) + day / 2, str(lb or '')
-            if lb and tw(lb, 10) <= xl - 3 - x0:
-                P('<text class="sl lw se" x="%s" y="%s">%s</text>' % (f(xl - 3), by + 9, esc(lb)))
+            if lb and tw(lb, 10 * u) <= xl - 3 * u - x0:
+                P('<text class="sl lw se" x="%s" y="%s">%s</text>' % (f(xl - 3 * u), f(by + 9 * u), esc(lb)))
                 continue
-            s, _ = fit(lb, W - xl - 8, 10) if lb else ('', False)
+            s, _ = fit(lb, W - xl - 8 * u, 10 * u) if lb else ('', False)
             if s:
-                P('<text class="sl lw" x="%s" y="%s">%s</text>' % (f(xl + 3), by + 9, esc(s)))
+                P('<text class="sl lw" x="%s" y="%s">%s</text>' % (f(xl + 3 * u), f(by + 9 * u), esc(s)))
     o += leg
+    found = any(hits for _, hits in shown)
     svg = ('<svg class="gantt%s" xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 0 %s %s"%s>'
            % (' zoom' if zoom else '', f(W), f(H), f(W), f(H),
-              ' data-x0="%d" data-dw="%d" data-d0="%s" data-d1="%s"' % (x0, day, d0, d1) if interactive else '')
-           + '<style>%s%s</style>' % (CSS, CSS_UI if interactive else '') + DEFS + ''.join(o) + '</svg>')
+              ' data-x0="%s" data-dw="%s" data-d0="%s" data-d1="%s"' % (f(x0), f(day), d0, d1) if interactive else '')
+           + '<style>%s%s%s</style>' % (CSS if u == 1 else css(u), CSS_UI if interactive else '', CSS_FIND if found else '')
+           + DEFS + ''.join(o) + '</svg>')
     return svg, W, H
 
 
-def render(data, day=14, interactive=False, legend=False, today=None, base_dir=None, zoom=False):
+def render(data, day=14, interactive=False, legend=False, today=None, base_dir=None, zoom=False, scale=1.0, query=None,
+           owner=None, by_owner=False):
     """The chart as one SVG string. base_dir: folder against which relative row links are resolved when the data has
-    no link_base. interactive adds the data-* hooks and hit areas app.html uses; zoom adds class `zoom` to the root."""
-    return _draw(data, day, interactive, legend, today, base_dir, zoom)[0]
+    no link_base. interactive adds the data-* hooks and hit areas app.html uses; zoom adds class `zoom` to the root.
+    day: pixels per day (6-40, any 0.01). scale: the size of everything else (rows, header, text, columns; 0.8-2.0).
+    query / owner / by_owner: which rows and in what order (view_rows); data-r / data-i stay the data's own."""
+    return _draw(data, day, interactive, legend, today, base_dir, zoom, scale, query, owner, by_owner)[0]
 
 
 # ---------------------------------------------------------------- png / pdf / share
@@ -825,13 +999,14 @@ def page_html(data, svg, w, h, stamp):
     return body, pw, ph
 
 
-def export(data, out, fmt, day=14, scale=2.0, base_dir=None, work=None):
-    """Render `data` to out (.png / .pdf) with headless Edge / Chrome. The page and the browser profile are written under
-    `work` (default: beside out) and removed afterwards; raises ExportError."""
+def export(data, out, fmt, day=14, scale=2.0, base_dir=None, work=None, view=None):
+    """Render `data` to out (.png / .pdf) with headless Edge / Chrome. scale: device pixels per px (PNG). view: more
+    arguments of render (scale, query, owner, by_owner). The page and the browser profile are written under `work`
+    (default: beside out) and removed afterwards; raises ExportError."""
     exe = find_browser()
     if not exe:
         raise ExportError('no Edge / Chrome found (set GANTT_BROWSER to the browser executable)')
-    svg, w, h = _draw(data, day, False, True, None, base_dir, False)
+    svg, w, h = _draw(data, day, False, True, None, base_dir, False, **(view or {}))
     text, pw, ph = page_html(data, svg, w, h, time.strftime('%Y-%m-%d %H:%M'))
     work = work or os.path.dirname(os.path.abspath(out))
     tag = '.gantt-%d-%d' % (os.getpid(), threading.get_ident() % 100000)
@@ -869,7 +1044,7 @@ def write_share(path, data):
     if not targets or not isinstance(targets, list) or any(not isinstance(t, str) for t in targets):
         raise ExportError('share: the data needs "share": a list of file paths (.pdf / .png / .svg)')
     folder = os.path.dirname(os.path.abspath(path))
-    day = clamp_day(data['day']) if isinstance(data.get('day'), int) and not isinstance(data.get('day'), bool) else 14
+    day = clamp_day(data['day']) if num(data.get('day')) else 14
     done = []
     for t in targets:
         dst = os.path.abspath(os.path.expanduser(t))
@@ -895,14 +1070,33 @@ def write_share(path, data):
 
 
 # ---------------------------------------------------------------- the page's API (pywebview js_api / POST /api/<name>)
-def clamp_day(day):
-    return max(6, min(40, int(day)))
+APP_NAME = 'Agent Gantt'
+RECENT_KEEP = 8
+PREFS = {'day': 14, 'scale': 1.3, 'fit': True, 'by_owner': False}     # the window's defaults (scale: bigger than files)
 
 
 def day_of(a, data):
     """--day, else the data's own "day" (its usual width for pictures), else 14."""
     d = data.get('day')
-    return clamp_day(a.day or (d if isinstance(d, int) and not isinstance(d, bool) else 0) or 14)
+    return clamp_day(a.day or (d if num(d) else 0) or 14)
+
+
+def clean_prefs(p):
+    """The valid window settings in p: day, scale (numbers), fit, by_owner (true / false)."""
+    p = p if isinstance(p, dict) else {}
+    out = {}
+    if num(p.get('day')):
+        out['day'] = clamp_day(p['day'])
+    if num(p.get('scale')):
+        out['scale'] = clamp_scale(p['scale'])
+    for k in ('fit', 'by_owner'):
+        if isinstance(p.get(k), bool):
+            out[k] = p[k]
+    return out
+
+
+def window_title(data, path):
+    return '%s — %s' % (APP_NAME, (data or {}).get('title') or data_stem(path)) if path else APP_NAME
 
 
 def sans_seen(data):
@@ -910,16 +1104,20 @@ def sans_seen(data):
 
 
 class Api:
-    """What app.html calls. Public names are the API; state is private (pywebview walks public attributes)."""
+    """What app.html calls. Public names are the API; state is private (pywebview walks public attributes).
+    The view calls take `day` and `view` = {scale, query, owner, by_owner, fit, w, h}; with fit, the day width and the
+    scale are chosen to fill w x h px. path None: no file yet (the window asks for one)."""
 
-    def __init__(self, path, day=14):
-        self._path = os.path.abspath(path)
-        self._dir = os.path.dirname(self._path)
-        self._day = clamp_day(day)
+    def __init__(self, path=None, day=14, prefs=None):
+        self._path = os.path.abspath(path) if path else None
+        self._dir = os.path.dirname(self._path) if path else None
+        self._prefs = dict(PREFS, day=clamp_day(day))
+        self._prefs.update(clean_prefs(prefs))
         self._lock = threading.Lock()                       # read - apply - write is one step
         self._undo = []                                     # (text before, text after) per batch this process wrote
         self._window = None
-        self._remember = None
+        self._remember = None                               # app: keeps changed prefs (~/.gantt/last.json)
+        self._opened = None                                 # app: told the path of every file opened (recent list)
         self._title = None
 
     def _mtime(self):
@@ -930,30 +1128,48 @@ class Api:
         text = read_text(self._path)
         return text, normalize(json.loads(text))
 
-    def _view(self, data, day):
-        day = clamp_day(day if day is not None else self._day)
-        if day != self._day:
-            self._day = day
-            if self._remember:
-                self._remember(day)
-        stem = os.path.basename(self._path)
-        title = '%s — %s' % (data.get('title') or stem, stem)
+    def _set_title(self, title):
         if self._window is not None and title != self._title:
             try:
                 self._window.set_title(title)
             except Exception:
                 pass
         self._title = title
-        return {'svg': render(data, day, interactive=True, base_dir=self._dir),
-                'data': {k: v for k, v in data.items() if k != 'log'}, 'mtime': self._mtime(), 'file': stem,
-                'day': day, 'legend': legend_map(data), 'kinds': list(KINDS), 'share': bool(data.get('share'))}
 
-    def get(self, day=None):
-        with self._lock:
-            return self._view(self._read()[1], day)
+    def _view(self, data, day=None, view=None):
+        v = view if isinstance(view, dict) else {}
+        query = v.get('query') if isinstance(v.get('query'), str) else None
+        owner = v.get('owner') if isinstance(v.get('owner'), str) and v.get('owner') else None
+        by_owner = v.get('by_owner') is True
+        fitted = None                                       # the size the chart was fitted to
+        if v.get('fit') is True and num(v.get('w')) and num(v.get('h')):
+            day, scale = fit_view(data, v['w'], v['h'], by_owner)
+            fitted = [v['w'], v['h']]
+        else:
+            day = clamp_day(day if num(day) else self._prefs['day'])
+            scale = clamp_scale(v['scale'] if num(v.get('scale')) else self._prefs['scale'])
+        title = window_title(data, self._path)
+        self._set_title(title)
+        shown = {r.get('id') for r, _ in view_rows(data, query, owner, by_owner) if not is_group(r)}
+        return {'svg': render(data, day, interactive=True, base_dir=self._dir, scale=scale, query=query, owner=owner,
+                              by_owner=by_owner),
+                'data': {k: v for k, v in data.items() if k != 'log'}, 'mtime': self._mtime(),
+                'file': os.path.basename(self._path), 'path': self._path, 'title': title, 'day': day, 'scale': scale,
+                'fitted': fitted, 'legend': legend_map(data), 'kinds': list(KINDS), 'share': bool(data.get('share')),
+                'owners': [list(pc) for pc in owners(data)], 'unset': UNSET, 'shown': len(shown),
+                'total': sum(1 for r in data['rows'] if not is_group(r))}
 
-    def apply(self, ops, day=None):
+    def get(self, day=None, view=None):
         with self._lock:
+            if not self._path:
+                self._set_title(APP_NAME)
+                return {'nofile': True}
+            return self._view(self._read()[1], day, view)
+
+    def apply(self, ops, day=None, view=None):
+        with self._lock:
+            if not self._path:
+                return {'ok': False, 'conflict': False, 'error': 'ファイルが開かれていません'}
             text, data = self._read()
             try:
                 texts = apply(data, ops)                    # the module's apply, not this method
@@ -965,18 +1181,18 @@ class Api:
                 new = dumps(data)
                 write_bytes(self._path, new.encode('utf-8'))
                 self._undo = (self._undo + [(text, new)])[-100:]
-            return dict(self._view(data, day), ok=True)
+            return dict(self._view(data, day, view), ok=True)
 
-    def poll(self, mtime=None, day=None):
+    def poll(self, mtime=None, day=None, view=None):
         with self._lock:
-            if self._mtime() == mtime:
+            if not self._path or self._mtime() == mtime:
                 return None
             try:
-                return self._view(self._read()[1], day)
+                return self._view(self._read()[1], day, view)
             except (ValueError, OSError) as e:
                 return {'error': str(e)}
 
-    def undo(self, day=None):
+    def undo(self, day=None, view=None):
         with self._lock:
             if not self._undo:
                 return {'ok': False, 'error': '戻せる操作がありません'}
@@ -996,7 +1212,15 @@ class Api:
                             'text': '元に戻す: ' + ' / '.join(str(e.get('text')) for e in gone)})
             write_bytes(self._path, dumps(old).encode('utf-8'))
             self._undo.pop()
-            return dict(self._view(old, day), ok=True)
+            return dict(self._view(old, day, view), ok=True)
+
+    def prefs(self, change=None):
+        """The window's settings (day, scale, fit, by_owner); `change` sets some of them (the app keeps them)."""
+        new = clean_prefs(change)
+        self._prefs.update(new)
+        if new and self._remember:
+            self._remember(**new)
+        return dict(self._prefs)
 
     def open_link(self, href=None):
         if urllib.parse.urlsplit(str(href or '')).scheme.lower() not in ('http', 'https', 'file'):
@@ -1005,11 +1229,59 @@ class Api:
 
     def share(self):
         try:
+            if not self._path:
+                raise ValueError('ファイルが開かれていません')
             with self._lock:
                 data = self._read()[1]
             return {'ok': True, 'paths': write_share(self._path, data)}
         except (ExportError, OSError, ValueError) as e:
             return {'ok': False, 'error': str(e)}
+
+    # --- the desktop window only (not in Handler.METHODS: serve has no file dialog and shows one file)
+    def recent(self):
+        """The recent files, newest first: [{path, file, title, current}] (only files that are there)."""
+        out = []
+        for p in recent_files():
+            try:
+                t = load(p).get('title')
+            except (OSError, ValueError):
+                t = None
+            out.append({'path': p, 'file': os.path.basename(p), 'title': str(t or data_stem(p)),
+                        'current': bool(self._path) and same_file(p, self._path)})
+        return out
+
+    def open_file(self, path=None, day=None, view=None):
+        """Show another data file in this window."""
+        p = os.path.abspath(os.path.expanduser(str(path or '')))
+        if not path or not os.path.isfile(p):
+            return {'ok': False, 'error': 'ファイルがありません: %s' % (path or '')}
+        try:
+            load(p)
+        except (OSError, ValueError) as e:
+            return {'ok': False, 'error': '%s: %s' % (os.path.basename(p), e)}
+        with self._lock:
+            self._path, self._dir, self._undo = p, os.path.dirname(p), []
+            if self._opened:
+                self._opened(p)
+            try:
+                return dict(self._view(self._read()[1], day, view), ok=True)
+            except (OSError, ValueError) as e:
+                return {'ok': False, 'error': str(e)}
+
+    def pick(self, day=None, view=None):
+        """The open-file dialog, then open_file. {'ok': False, 'cancel': True} when nothing was chosen."""
+        if self._window is None:
+            return {'ok': False, 'error': 'ファイルを選ぶ窓が使えません'}
+        try:
+            import webview
+            kind = webview.FileDialog.OPEN if hasattr(webview, 'FileDialog') else webview.OPEN_DIALOG
+            got = self._window.create_file_dialog(kind, directory=self._dir or os.path.expanduser('~'),
+                                                  file_types=('Gantt data (*.gantt.json)', 'JSON (*.json)'))
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
+        if not got:
+            return {'ok': False, 'cancel': True}
+        return self.open_file(got if isinstance(got, str) else got[0], day, view)
 
 
 # ---------------------------------------------------------------- HTTP (serve)
@@ -1017,7 +1289,8 @@ class Handler(BaseHTTPRequestHandler):
     server_version = 'gantt/1'
     api = None
     names = ('127.0.0.1', 'localhost')                      # host names this server answers to
-    METHODS = ('get', 'apply', 'poll', 'undo', 'open_link', 'share')
+    METHODS = ('get', 'apply', 'poll', 'undo', 'prefs', 'open_link', 'share')
+    APP_ONLY = ('recent', 'open_file', 'pick')             # the desktop window's js_api only
 
     def log_message(self, *_):
         pass
@@ -1199,7 +1472,8 @@ def cmd_check(a):
 
 
 def read_last():
-    """What the app window remembers (~/.gantt/last.json): the file and the zoom (the window has no localStorage)."""
+    """What the app window remembers (~/.gantt/last.json; the window has no localStorage): file (the last one opened),
+    recent (up to 8, newest first), day, scale, fit, by_owner."""
     try:
         with open(os.path.join(HOME, 'last.json'), encoding='utf-8') as fh:
             d = json.load(fh)
@@ -1211,31 +1485,38 @@ def read_last():
 def write_last(**kw):
     try:
         os.makedirs(HOME, exist_ok=True)
-        with open(os.path.join(HOME, 'last.json'), 'w', encoding='utf-8') as fh:
-            json.dump(dict(read_last(), **kw), fh)
+        write_bytes(os.path.join(HOME, 'last.json'),
+                    json.dumps(dict(read_last(), **kw), ensure_ascii=False, indent=1).encode('utf-8'))
     except OSError:
         pass
 
 
+def same_file(a, b):
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def recent_files():
+    """The remembered files that are there, newest first (the last one opened first), at most RECENT_KEEP."""
+    last = read_last()
+    out = []
+    for p in [last.get('file')] + list(last.get('recent') or [] if isinstance(last.get('recent'), list) else []):
+        if isinstance(p, str) and os.path.isfile(p) and not any(same_file(p, q) for q in out):
+            out.append(os.path.abspath(p))
+    return out[:RECENT_KEEP]
+
+
 def last_file():
-    p = read_last().get('file')
-    return p if isinstance(p, str) and os.path.isfile(p) else None
+    r = recent_files()
+    return r[0] if r else None
 
 
-def pick_file():
-    try:
-        import tkinter
-        from tkinter import filedialog
-        root = tkinter.Tk()
-        root.withdraw()
-        p = filedialog.askopenfilename(title='gantt', filetypes=[('Gantt data', '*.gantt.json'), ('JSON', '*.json')])
-        root.destroy()
-        return p or None
-    except Exception:
-        return None
+def push_recent(path):
+    """`path` was opened: first in the recent list (files no longer there drop out)."""
+    p = os.path.abspath(path)
+    write_last(file=p, recent=([p] + [q for q in recent_files() if not same_file(q, p)])[:RECENT_KEEP])
 
 
-def start_gui(api, title, hidden, run=None, store=STORE):
+def start_gui(api, title, hidden, run=None, store=STORE, size=(1400, 900)):
     """Create the window and run the GUI loop (blocks). Returns the window."""
     try:
         import webview
@@ -1249,7 +1530,7 @@ def start_gui(api, title, hidden, run=None, store=STORE):
         pass
     with open(os.path.join(HERE, 'app.html'), encoding='utf-8') as fh:
         page = fh.read()
-    win = webview.create_window(title, html=page, js_api=api, width=1400, height=900, min_size=(800, 500),
+    win = webview.create_window(title, html=page, js_api=api, width=size[0], height=size[1], min_size=(800, 500),
                                 hidden=hidden, text_select=True)
     api._window = win
     webview.start(run, (win,) if run else None, private_mode=True, storage_path=store,
@@ -1258,16 +1539,19 @@ def start_gui(api, title, hidden, run=None, store=STORE):
 
 
 def cmd_app(a):
-    path = a.file or last_file() or pick_file()
-    if not path:
-        raise SystemExit('gantt: no file (python gantt.py app FILE)')
-    path = need_file(path)
-    data = load_or_exit(path)
-    last = read_last()
-    write_last(file=path)
-    api = Api(path, a.day or last.get('day') or day_of(a, data))
-    api._remember = lambda day: write_last(day=day)             # the window has no localStorage: keep the zoom here
-    start_gui(api, '%s — %s' % (data.get('title') or data_stem(path), os.path.basename(path)), False)
+    """FILE, else the last file opened, else none: the window then shows the open-file dialog."""
+    path = a.file or last_file()
+    path = need_file(path) if path else None
+    data = load_or_exit(path) if path else None
+    prefs = clean_prefs(read_last())
+    kept = prefs.pop('day', None)                               # --day, else the width chosen last, else the data's
+    day = a.day or kept or (day_of(a, data) if data else 14)
+    if path:
+        push_recent(path)
+    api = Api(path, day, prefs)
+    api._remember = write_last                                  # the window has no localStorage: keep settings here
+    api._opened = push_recent
+    start_gui(api, window_title(data, path), False)
 
 
 def cmd_serve(a):
@@ -1293,29 +1577,173 @@ def cmd_serve(a):
         srv.server_close()
 
 
-SELFTEST_JS = ('JSON.stringify({svg: !!document.querySelector("#chart svg.gantt"), '
-               'rows: document.querySelectorAll("#chart g.row").length, items: document.querySelectorAll("#chart g.it").length, '
-               'errors: window.__errors || [], status: (document.getElementById("status")||{}).textContent, '
-               'storage: (function(){try{localStorage.setItem("gantt.t","1");localStorage.removeItem("gantt.t");return "ok"}'
-               'catch(e){return "blocked"}})()})')
+# selftest: helpers put into the page. drag() replaces the page's commit, so the drag is checked and nothing is written.
+SELFTEST_JS = r'''window.__st = {
+ state() {
+  const svg = document.querySelector('#chart svg.gantt'), sc = document.getElementById('sc'), t = document.querySelector('#chart text.t');
+  return {svg: !!svg, rows: document.querySelectorAll('#chart g.row[data-r]:not([data-g])').length,
+   items: document.querySelectorAll('#chart g.it').length, marks: document.querySelectorAll('#chart rect.qh').length,
+   heads: [...document.querySelectorAll('#chart g.row[data-p]')].map(g => g.dataset.p), found: document.getElementById('qn').textContent,
+   day: S.day, scale: S.scale, fit: S.fit, sw: svg ? +svg.getAttribute('width') : 0, sh: svg ? +svg.getAttribute('height') : 0,
+   cw: sc.clientWidth, ch: sc.clientHeight, font: t ? getComputedStyle(t).fontSize : '', errors: window.__errors.slice(),
+   storage: (function () { try { localStorage.setItem('gantt.t', '1'); localStorage.removeItem('gantt.t'); return 'ok'; } catch (e) { return 'blocked'; } })()};
+ },
+ bar() {
+  const b = document.getElementById('bar'), r = b.getBoundingClientRect(), over = [];
+  for (const c of b.children) {
+   if (c.hidden || getComputedStyle(c).display === 'none') continue;
+   const q = c.getBoundingClientRect();
+   if (q.width > 0 && (q.right > r.right + 0.5 || q.left < r.left - 0.5 || q.top < r.top - 0.5 || q.bottom > r.bottom + 0.5)) over.push(c.id || c.className);
+  }
+  return {w: Math.round(r.width), h: Math.round(r.height), over: over, file: !document.getElementById('bFile').hidden,
+   title: Math.round(document.getElementById('ttl').getBoundingClientRect().width), folded: document.getElementById('legend').classList.contains('folded')};
+ },
+ word() {                                   // a word to search for: the label of an item in the middle of the data
+  const its = S.data.rows.flatMap(r => (r.items || []).filter(it => it.label));
+  return its.length ? its[Math.floor(its.length / 2)].label : '';
+ },
+ find(text) { const q = document.getElementById('q'); q.value = text; q.dispatchEvent(new Event('input')); },
+ who(i) { const s = document.getElementById('who'); s.value = i < 0 ? '' : s.options[i].value; s.dispatchEvent(new Event('change')); return s.value; },
+ ids() {                                    // every data-r / data-i of the chart is a row / item of the data
+  const rows = new Map(S.data.rows.map(r => [r.id, r]));
+  for (const g of document.querySelectorAll('#chart g.it')) {
+   const r = rows.get(g.dataset.r), it = r && (r.items || [])[+g.dataset.i];
+   if (!it) return 'no item ' + g.dataset.r + ' ' + g.dataset.i;
+   if ((g.dataset.on || null) !== (it.on || null) || (g.dataset.from || null) !== (it.from || null)) return 'other item ' + g.dataset.r + ' ' + g.dataset.i;
+  }
+  return 'ok';
+ },
+ drag() {                                   // drag the last bar drawn (with room) by 3 days; the op is caught, not written
+  window.__ops = null;
+  window.commit = async ops => { window.__ops = ops; return null; };
+  const G = geom(), bars = [...document.querySelectorAll('#chart g.it')].filter(g => g.querySelector('rect.b')
+   && pd(g.dataset.from) >= G.d0 && pd(g.dataset.to) + 3 <= G.d1);
+  if (!bars.length) return null;
+  const g = bars[bars.length - 1], r = g.querySelector('rect.b').getBoundingClientRect();
+  const x = r.left + r.width / 2, y = r.top + r.height / 2, dx = 3 * G.dw * G.k;
+  g.querySelector('rect.b').dispatchEvent(new MouseEvent('mousedown', {bubbles: true, button: 0, clientX: x, clientY: y}));
+  window.dispatchEvent(new MouseEvent('mousemove', {clientX: x + dx, clientY: y}));
+  window.dispatchEvent(new MouseEvent('mouseup', {clientX: x + dx, clientY: y}));
+  return {row: g.dataset.r, i: +g.dataset.i, from: g.dataset.from, to: g.dataset.to};
+ }
+};
+true'''
+
+
+def _until(win, cond, secs=10.0):
+    end = time.time() + secs
+    while time.time() < end:
+        try:
+            if win.evaluate_js(cond):
+                return True
+        except Exception:
+            pass
+        time.sleep(0.15)
+    return False
+
+
+def _selftest_steps(win, res):
+    """Load, then the toolbar's layout, scale, search, the person filter, the by-person view (with a dry drag) and the
+    fit mode. Appends report lines and problems to res."""
+    js = win.evaluate_js
+    out, bad = res['lines'], res['bad']
+
+    def state():
+        return json.loads(js('JSON.stringify(__st.state())'))
+
+    def step(code, what):                              # run code, wait for the render it causes
+        gen = js('S.gen')
+        js(code)
+        if not _until(win, 'S.gen > %d && !S.inflight && !S.again' % gen):
+            raise RuntimeError('no new chart after %s' % what)
+        return state()
+
+    if not _until(win, 'typeof S === "object" && S.gen > 0 && !S.inflight && !!document.querySelector("#chart svg.gantt")', 25):
+        raise RuntimeError('the chart did not appear')
+    _until(win, '!S.inflight && !S.again', 3)
+    js(SELFTEST_JS)
+    s = state()
+    out.append('page: rows=%s items=%s localStorage=%s' % (s['rows'], s['items'], s['storage']))
+    b = json.loads(js('JSON.stringify(__st.bar())'))
+    out.append('toolbar: %dx%d overflow=%s title=%dpx legend=%s file-button=%s'
+               % (b['w'], b['h'], ','.join(b['over']) or 'none', b['title'], 'folded' if b['folded'] else 'open', b['file']))
+    if b['over'] or b['h'] != 46:
+        bad.append('toolbar does not fit')
+    if s['fit'] and s['cw'] > 200:
+        out.append('fit: day=%s scale=%s chart %sx%s in %sx%s' % (s['day'], s['scale'], s['sw'], s['sh'], s['cw'], s['ch']))
+        if s['sw'] > s['cw'] + 0.5 or (s['sw'] < s['cw'] - 2 and s['day'] < 40):
+            bad.append('fit: the chart does not fill the width')
+    base = s
+    up = base['scale'] < SCALE_MAX                     # 文字 ＋, or − when it is already the biggest
+    s = step('document.getElementById("%s").click()' % ('bTextIn' if up else 'bTextOut'), 'text size')
+    out.append('scale: %s -> %s, text %s -> %s, fit %s' % (base['scale'], s['scale'], base['font'], s['font'],
+                                                          'on' if s['fit'] else 'off'))
+    fonts = float(s['font'][:-2] or 0), float(base['font'][:-2] or 0)
+    if s['fit'] or (s['scale'] > base['scale'] and fonts[0] > fonts[1]) != up or s['scale'] == base['scale']:
+        bad.append('scale')
+    word = js('__st.word()')
+    s = step('__st.find(%s)' % json.dumps(word), 'search')
+    out.append('search %r: rows %s of %s, marked %s, box %r' % (word, s['rows'], base['rows'], s['marks'], s['found']))
+    if not (0 < s['rows'] <= base['rows'] and s['marks'] > 0):
+        bad.append('search')
+    s = step('__st.find("")', 'clear search')
+    if s['rows'] != base['rows'] or s['marks']:
+        bad.append('search not cleared')
+    who = js('document.getElementById("who").options[1] ? document.getElementById("who").options[1].value : ""')
+    if who:
+        label = js('document.getElementById("who").options[1].textContent')
+        s = step('__st.who(1)', 'person filter')
+        out.append('person %r (%s): rows %s' % (who, label, s['rows']))
+        if not 0 < s['rows'] < base['rows'] + 1 or ('（%d）' % s['rows']) not in label:
+            bad.append('person filter')
+        step('__st.who(-1)', 'all people')
+    s = step('document.getElementById("bBy").click()', 'by person')
+    ids = js('__st.ids()')
+    drag = json.loads(js('JSON.stringify(__st.drag())'))
+    _until(win, 'window.__ops !== null', 3)
+    ops = json.loads(js('JSON.stringify(window.__ops)'))
+    moved = ''
+    if drag and ops:
+        o = ops[0]
+        want = {k: (dt.date.fromisoformat(drag[k]) + dt.timedelta(days=3)).isoformat() for k in ('from', 'to')}
+        moved = '%s item %s %s..%s -> %s..%s' % (o.get('row'), o.get('i'), drag['from'], drag['to'],
+                                                 o['set'].get('from'), o['set'].get('to'))
+        if (o.get('op'), o.get('row'), o.get('i'), o.get('set')) != ('item', drag['row'], drag['i'], want):
+            bad.append('drag in the by-person view: %s' % moved)
+    else:
+        bad.append('drag in the by-person view: no op')
+    out.append('by person: %d headers (%s), data ids %s, drag %s (not written)'
+               % (len(s['heads']), '、'.join(s['heads'][:4]) + ('…' if len(s['heads']) > 4 else ''), ids, moved))
+    if not s['heads'] or ids != 'ok':
+        bad.append('by person')
+    js('window.commit = undefined')                    # nothing more may write
+    step('document.getElementById("bBy").click()', 'by person off')
+    s = step('document.getElementById("bFit").click()', 'fit')
+    out.append('fit again: day=%s scale=%s chart %sx%s in %sx%s' % (s['day'], s['scale'], s['sw'], s['sh'], s['cw'], s['ch']))
+    if not s['fit'] or s['sw'] > s['cw'] + 0.5 or (s['sw'] < s['cw'] - 2 and s['day'] < 40):
+        bad.append('fit')
+    gen, cw = js('S.gen'), s['cw']
+    win.resize(1500, 1000)                             # still hidden: the chart follows the new size
+    if _until(win, 'S.gen > %d && !S.inflight && !S.again && document.getElementById("sc").clientWidth > %d' % (gen, cw + 100), 6):
+        _until(win, '!S.inflight && !S.again', 2)
+        s = state()
+        out.append('resized: day=%s scale=%s chart %sx%s in %sx%s' % (s['day'], s['scale'], s['sw'], s['sh'], s['cw'], s['ch']))
+        if s['sw'] > s['cw'] + 0.5 or (s['sw'] < s['cw'] - 2 and s['day'] < 40):
+            bad.append('fit after a resize')
+    else:
+        bad.append('no new fit after a resize')
+    res['errors'] = state()['errors']
 
 
 def cmd_selftest(a):
+    """Open the window hidden (1280 x 900) on FILE and drive the page; nothing is written to FILE or to last.json."""
     path = need_file(a.file)
     api = Api(path, day_of(a, load_or_exit(path)))
-    res = {}
+    res = {'lines': [], 'bad': [], 'errors': []}
 
     def run(win):
         try:
-            end = time.time() + 25
-            while time.time() < end:
-                try:
-                    if win.evaluate_js('!!document.querySelector("#chart svg.gantt")'):
-                        break
-                except Exception:
-                    pass
-                time.sleep(0.3)
-            res['page'] = json.loads(win.evaluate_js(SELFTEST_JS))
+            _selftest_steps(win, res)
             try:                                           # is the window icon ours? (blue square, not the default)
                 from webview.platforms.winforms import BrowserView
                 bmp = BrowserView.instances[win.uid].Icon.ToBitmap()
@@ -1325,15 +1753,21 @@ def cmd_selftest(a):
                 res['icon'] = 'unknown (%s)' % e
         except Exception as e:
             res['error'] = repr(e)
+            try:
+                res['errors'] = json.loads(win.evaluate_js('JSON.stringify(window.__errors || [])'))
+            except Exception:
+                pass
         finally:
             win.destroy()
 
-    start_gui(api, 'gantt selftest', True, run, STORE + '-selftest')
-    p = res.get('page') or {}
-    ok = bool(p.get('svg')) and not p.get('errors') and 'error' not in res
-    print('selftest: %s  rows=%s items=%s errors=%s localStorage=%s icon=%s%s'
-          % ('ok' if ok else 'FAILED', p.get('rows'), p.get('items'), p.get('errors'), p.get('storage'), res.get('icon'),
-             '  ' + res['error'] if 'error' in res else ''))
+    start_gui(api, 'gantt selftest', True, run, STORE + '-selftest', size=(1280, 900))
+    ok = not res['bad'] and not res['errors'] and 'error' not in res
+    print('selftest: %s  errors=%s icon=%s%s' % ('ok' if ok else 'FAILED', res['errors'], res.get('icon'),
+                                                 '  ' + res['error'] if 'error' in res else ''))
+    for line in res['lines']:
+        print('  ' + line)
+    for line in res['bad']:
+        print('  problem: ' + line)
     sys.exit(0 if ok else 1)
 
 

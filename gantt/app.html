@@ -2,36 +2,58 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>gantt</title>
+<title>Agent Gantt</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" href="/favicon.ico">
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1d2330;--muted:#5b6475;--line:#d7dbe3;--accent:#a3385f;--head:#eef1f6;
  --warn:#fff3e0;--warns:#d08a2a;--rec:#e8f0fb;--recs:#3d6fb6;--ok:#e6f4ea;--oks:#4b9a5f;--ng:#fbe9e7;--ngs:#c0504d;
- color-scheme:light dark}
+ --gantt-find:#ffd54a;color-scheme:light dark}
 @media (prefers-color-scheme: dark){:root{--bg:#14171d;--card:#1c2028;--ink:#e6e9ef;--muted:#9aa3b4;--line:#323846;
  --accent:#e57fa4;--head:#232834;--warn:#3a2c15;--warns:#e0a84a;--rec:#18263a;--recs:#6e9fe0;--ok:#1b3324;--oks:#6cc086;
- --ng:#3a1f1d;--ngs:#e0807a}}
+ --ng:#3a1f1d;--ngs:#e0807a;--gantt-find:#8a6a00}}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink);font:13px/1.4 "Yu Gothic UI","Meiryo","Hiragino Sans",sans-serif;
  display:flex;flex-direction:column;overflow:hidden}
-button{font:inherit;color:var(--ink);cursor:pointer}
+button,select,input{font:inherit;color:var(--ink)}
+button{cursor:pointer}
 
-/* toolbar: fixed height, buttons of one size, the status text of a fixed width */
-#bar{flex:none;height:46px;display:flex;align-items:center;gap:6px;padding:0 12px;background:var(--card);
- border-bottom:1px solid var(--line)}
-#ttl{flex:0 1 auto;min-width:0;max-width:24vw;margin-right:6px;font-weight:700;white-space:nowrap;overflow:hidden;
- text-overflow:ellipsis}
-.tb{flex:none;width:104px;height:28px;padding:0;font-size:12px;font-weight:400;background:var(--head);
+/* toolbar: one row of fixed height; buttons of one size; nothing moves when a state changes */
+#bar{flex:none;height:46px;display:flex;align-items:center;gap:6px;padding:0 10px;background:var(--card);
+ border-bottom:1px solid var(--line);overflow:hidden}
+#ttl{flex:0 1 200px;min-width:0;margin-right:2px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb{flex:none;width:66px;height:28px;padding:0;font-size:12px;font-weight:400;background:var(--head);
  border:1px solid var(--line);border-radius:6px}
 .tb:hover{border-color:var(--recs)}
 .tb:active{font-weight:400;background:var(--line)}
 .tb:disabled{opacity:.5;cursor:default}
-#legend{flex:1 1 0;min-width:0;max-height:40px;display:flex;flex-wrap:wrap;align-content:center;gap:1px 12px;
- margin-left:8px;overflow:hidden;white-space:nowrap;color:var(--muted);font-size:11.5px;line-height:1.3}
-.lg{display:inline-flex;align-items:center;gap:4px}
+.tb[aria-pressed="true"]{background:var(--rec);border-color:var(--recs)}
+.tb.sq{width:28px;font-size:15px;line-height:1}
+.stp,.who{flex:none;display:flex;align-items:center;gap:2px}
+.who{gap:4px}
+.cap{flex:none;padding:0 2px;color:var(--muted);font-size:12px}
+.find{position:relative;flex:none;width:176px;height:28px}
+#q{width:100%;height:28px;padding:0 52px 0 8px;font-size:12px;background:var(--card);border:1px solid var(--line);
+ border-radius:6px}
+#q:focus{outline:none;border-color:var(--recs)}
+#qn{position:absolute;right:28px;top:0;line-height:28px;font-size:11px;color:var(--muted);pointer-events:none}
+#qx{position:absolute;right:2px;top:2px;width:24px;height:24px;padding:0;font-size:14px;color:var(--muted);
+ background:transparent;border:0;border-radius:4px}
+#qx:hover{background:var(--head)}
+#who{width:112px;height:28px;padding:0 4px;font-size:12px;background:var(--card);border:1px solid var(--line);border-radius:6px}
+#legend{flex:1 1 0;min-width:0;max-height:40px;display:flex;flex-wrap:wrap;align-content:center;align-items:center;
+ overflow:hidden;color:var(--muted);font-size:11.5px;line-height:1.3}
+#lgList{display:flex;flex-wrap:wrap;gap:1px 12px;margin-left:4px}
+#bLegend{display:none}
+#legend.folded{flex:none;width:66px}
+#legend.folded #bLegend{display:block}
+#legend.folded #lgList{display:none;position:fixed;top:44px;z-index:8;flex-direction:column;flex-wrap:nowrap;gap:4px;
+ margin:0;padding:8px 12px;white-space:nowrap;background:var(--card);border:1px solid var(--line);border-radius:6px;
+ box-shadow:0 6px 16px rgba(0,0,0,.18)}
+#legend.folded.open #lgList{display:flex}
+.lg{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
 .sw{display:inline-block;width:16px;height:10px;border:1px solid var(--line);border-radius:2px}
 .sw.k-plan{background:var(--rec);border-color:var(--recs)}
 .sw.k-tbd{background:repeating-linear-gradient(45deg,var(--rec) 0 3px,var(--card) 3px 6px);border:1px dashed var(--recs)}
@@ -40,20 +62,33 @@ button{font:inherit;color:var(--ink);cursor:pointer}
 .sw.k-wait{background:repeating-linear-gradient(90deg,var(--line) 0 2px,transparent 2px 5px)}
 .sw.k-off{background:var(--line)}
 .sw.k-done{background:var(--ok);border-color:var(--oks)}
-#status{flex:0 1 160px;width:160px;min-width:0;text-align:right;white-space:nowrap;overflow:hidden;
+#status{flex:0 1 120px;width:120px;min-width:64px;text-align:right;white-space:nowrap;overflow:hidden;
  text-overflow:ellipsis;color:var(--muted);font-size:12px}
 #status.err{color:var(--ngs)}
+
+/* file menu */
+#menu{position:fixed;top:44px;z-index:8;min-width:300px;max-width:560px;max-height:70vh;overflow:auto;padding:4px 0;
+ background:var(--card);border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 16px rgba(0,0,0,.18)}
+.mi{position:relative;display:block;width:100%;padding:5px 14px 5px 28px;text-align:left;background:transparent;border:0}
+.mi:hover{background:var(--head)}
+.mi b,.mi span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mi span{color:var(--muted);font-size:11.5px}
+.mi.cur::before{content:"✓";position:absolute;left:10px;top:5px;color:var(--accent)}
+.mn{padding:6px 14px;color:var(--muted)}
+#menu hr{margin:4px 0}
 
 /* chart */
 #sc{flex:1;min-height:0;overflow:auto;background:var(--card)}
 #chart{width:max-content;user-select:none;-webkit-user-select:none}
 #chart svg{display:block;max-width:none}
+.empty{padding:40px 24px;color:var(--muted);font-size:14px}
 .gantt text{cursor:inherit}
 .gantt .row:hover .hov{fill:var(--ink);fill-opacity:.05}
 .gantt .row.cur .hov{fill:var(--accent);fill-opacity:.08}
+.gantt g.row[data-p] text.g{fill:var(--recs)}
 .gantt .it.sel .b,.gantt .it.sel .m{stroke:var(--accent);stroke-width:2}
 .gantt .ttl,.gantt .ttl *,.gantt .go{cursor:pointer}
-.gantt .rs text{display:none}
+.gantt .rs text,.gantt .rs .qh{display:none}
 #tip{position:fixed;z-index:9;pointer-events:none;padding:2px 7px;font-size:12px;white-space:nowrap;
  background:var(--ink);color:var(--card);border-radius:3px}
 
@@ -86,19 +121,33 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0 4px}
 <body>
 <div id="bar">
  <div id="ttl"></div>
- <button class="tb" id="bAddRow">行を追加</button>
- <button class="tb" id="bAddGroup">区切りを追加</button>
- <button class="tb" id="bUndo">元に戻す</button>
- <button class="tb" id="bOut">縮小</button>
- <button class="tb" id="bIn">拡大</button>
- <button class="tb" id="bToday">今日</button>
- <button class="tb" id="bShare" hidden>共有用に書き出し</button>
- <div id="legend"></div>
+ <button class="tb" id="bFile" aria-haspopup="menu" title="最近のファイル・ファイルの選択" hidden>ファイル</button>
+ <button class="tb need" id="bAddRow">行の追加</button>
+ <button class="tb need" id="bAddGroup">区切り追加</button>
+ <button class="tb need" id="bUndo" title="元に戻す（Ctrl+Z）">取り消し</button>
+ <span class="stp"><span class="cap">期間</span><button class="tb sq need" id="bOut" aria-label="期間の縮小"
+  title="期間を縮める（1 日の幅を狭く）">−</button><button class="tb sq need" id="bIn" aria-label="期間の拡大"
+  title="期間を広げる（1 日の幅を広く）">＋</button></span>
+ <span class="stp"><span class="cap">文字</span><button class="tb sq need" id="bTextOut" aria-label="文字の縮小"
+  title="文字を小さく（行・見出し・列も。Ctrl+− / Ctrl+ホイール）">−</button><button class="tb sq need" id="bTextIn"
+  aria-label="文字の拡大" title="文字を大きく（行・見出し・列も。Ctrl+＋ / Ctrl+ホイール）">＋</button></span>
+ <button class="tb need" id="bFit" aria-pressed="true" title="窓に合わせる（期間を窓の幅に、行を窓の高さに）">全体表示</button>
+ <button class="tb need" id="bToday">今日</button>
+ <span class="find"><input id="q" class="need" placeholder="検索" autocomplete="off" spellcheck="false"
+  title="項目・担当・メモ・バーの名前で絞り込み（Ctrl+F、Esc で消去）"><span id="qn"></span><button id="qx" title="検索の消去（Esc）"
+  hidden>×</button></span>
+ <span class="who"><label class="cap" for="who">担当</label><select id="who" class="need"
+  title="この人の行だけ表示"><option value="">すべて</option></select></span>
+ <button class="tb need" id="bBy" aria-pressed="false" title="担当ごとに並べる（表示だけ。データの並びは変えない）">担当ごと</button>
+ <button class="tb" id="bShare" title="共有用に書き出し（データの share）" hidden>書き出し</button>
+ <div id="legend"><button class="tb" id="bLegend">凡例</button><div id="lgList"></div></div>
  <div id="status"></div>
 </div>
+<div id="menu" role="menu" hidden></div>
 <div id="sc"><div id="chart"></div></div>
 <aside id="drawer" hidden></aside>
 <div id="tip" hidden></div>
+<datalist id="people"></datalist>
 <script>
 'use strict';
 window.__errors = [];
@@ -108,9 +157,12 @@ function fail(m) { window.__errors.push(String(m)); setStatus('エラー: ' + m,
 window.addEventListener('error', e => fail(e.message || e.error));
 window.addEventListener('unhandledrejection', e => fail((e.reason && e.reason.message) || e.reason));
 
-const ZOOMS = [6, 8, 10, 14, 18, 24, 32];
-const S = {day: 14, data: null, svg: '', mtime: '', file: '', legend: {}, kinds: [], sel: null, drawer: null,
-           busy: false, gen: 0, sig: '', reveal: false};
+const ZOOMS = [6, 8, 10, 14, 18, 24, 32];                          // day widths of 期間 − / ＋
+const SCALES = [0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.45, 1.6, 1.8, 2];     // sizes of 文字 − / ＋ (about 10 % a step)
+const S = {day: 14, scale: 1.3, fit: true, byOwner: false, query: '', owner: '', manual: {day: 14, scale: 1.3},
+           data: null, svg: '', mtime: '', file: '', path: '', nofile: false, share: false, unset: '未定',
+           legend: {}, kinds: [], sel: null, drawer: null, busy: false, inflight: false, again: false, loop: null,
+           gen: 0, sig: '', reveal: false, fitAt: null, refits: 0, ownSig: '', lgSig: '', wheelAt: 0, size: ''};
 let drag = null;
 
 // ---- API: pywebview (desktop window) or POST /api/<name> (browser)
@@ -145,16 +197,32 @@ const isMs = it => it.on != null;
 const snap = it => { const o = {}; for (const k of ['from', 'to', 'on', 'label', 'kind']) if (it[k] != null) o[k] = it[k]; return o; };
 const itemName = it => it.label || '無題';
 
+// what the chart shows besides the data: sent with every call; with fit, Python picks the day width and the scale
+function view() {
+  const sc = $('sc'), v = {scale: S.scale, query: S.query, owner: S.owner, by_owner: S.byOwner};
+  if (S.fit && sc.clientWidth > 200 && sc.clientHeight > 80) { v.fit = true; v.w = sc.clientWidth; v.h = sc.clientHeight; }
+  return v;
+}
 function take(res) {
-  S.data = res.data; S.svg = res.svg; S.mtime = res.mtime; S.gen++;
-  if (res.day) S.day = res.day;
-  if (res.file) S.file = res.file;
+  if (!res) return;
+  S.gen++;
+  if (res.nofile) { S.nofile = true; S.data = null; S.svg = ''; S.mtime = ''; empty(); return; }
+  S.nofile = false;
+  S.data = res.data; S.svg = res.svg; S.mtime = res.mtime;
+  S.day = res.day; S.scale = res.scale; S.fitAt = res.fitted || null;
+  S.file = res.file; S.path = res.path; S.share = !!res.share;
+  if (res.unset) S.unset = res.unset;
   if (res.kinds) S.kinds = res.kinds;
-  if (res.legend) { S.legend = res.legend; $('legend').innerHTML = S.kinds.map(k => '<span class="lg"><i class="sw k-' + k + '"></i>' + esc(S.legend[k]) + '</span>').join(''); }
-  $('bShare').hidden = !res.share;
+  if (res.legend) setLegend(res.legend);
+  $('bShare').hidden = !(HTTP && res.share);                   // in the window it is in the file menu
   $('ttl').textContent = res.data.title || S.file;
-  document.title = (res.data.title || S.file) + ' — ' + S.file;
+  $('ttl').title = (res.data.title || S.file) + '\n' + S.path;
+  document.title = res.title || 'Agent Gantt';
+  $('qn').textContent = S.query ? res.shown + ' 行' : '';
+  setOwners(res.owners || []);
+  need(true);
   paint();
+  checkFit();
 }
 function paint() {
   const sc = $('sc'), l = sc.scrollLeft, t = sc.scrollTop;
@@ -163,6 +231,14 @@ function paint() {
   mark();
   syncDrawer();
 }
+function empty() {
+  $('chart').innerHTML = '<div class="empty">ファイルが開かれていません。「ファイル」から選んでください。</div>';
+  $('ttl').textContent = '';
+  document.title = 'Agent Gantt';
+  need(false);
+  closeDrawer();
+}
+function need(on) { for (const el of document.querySelectorAll('.need')) el.disabled = !on; }
 function mark() {
   for (const g of document.querySelectorAll('#chart g.it'))
     g.classList.toggle('sel', !!S.sel && g.dataset.r === S.sel.r && +g.dataset.i === S.sel.i);
@@ -172,32 +248,58 @@ function geom() {
   const svg = $('chart').querySelector('svg');
   if (!svg) return null;
   const r = svg.getBoundingClientRect();
-  return {left: r.left, k: r.width / svg.viewBox.baseVal.width, x0: +svg.dataset.x0, dw: +svg.dataset.dw,
-          d0: pd(svg.dataset.d0), d1: pd(svg.dataset.d1)};
+  return {left: r.left, top: r.top, k: r.width / svg.viewBox.baseVal.width, x0: +svg.dataset.x0, dw: +svg.dataset.dw,
+          d0: pd(svg.dataset.d0), d1: pd(svg.dataset.d1), h: +svg.getAttribute('height')};
 }
-async function reload() { take(await api('get', S.day)); }
+function again() { if (S.inflight) S.again = true; else refresh(); }
+function refresh() {                       // render again with the current view; calls while one runs are folded into it
+  if (S.nofile) return Promise.resolve();
+  if (S.inflight) { S.again = true; return S.loop; }
+  S.inflight = true;
+  S.loop = (async () => {
+    try { do { S.again = false; take(await api('get', S.day, view())); } while (S.again); }
+    catch (e) { fail(e.message || e); }
+    finally { S.inflight = false; }
+  })();
+  return S.loop;
+}
+function checkFit() {                      // a scrollbar came or went: fit the new visible size (twice at most)
+  if (!S.fit || !S.fitAt) { S.refits = 0; return; }
+  const sc = $('sc');
+  if (sc.clientWidth === S.fitAt[0] && sc.clientHeight === S.fitAt[1]) { S.refits = 0; return; }
+  if (++S.refits <= 2) again();
+}
 async function commit(ops) {
   S.busy = true;
   try {
-    const res = await api('apply', ops, S.day);
+    const res = await api('apply', ops, S.day, view());
     if (res.ok) { take(res); setStatus('保存 ' + hm()); return res; }
-    if (res.conflict) { await reload(); setStatus('ほかで変わったので読み直し', true); }
+    if (res.conflict) { await refresh(); setStatus('ほかで変わったので読み直し', true); }
     else { setStatus(res.error || 'エラー', true); syncDrawer(); }
   } catch (e) { fail(e.message || e); }
   finally { S.busy = false; }
   return null;
 }
 async function poll() {
-  if (drag || S.busy || !S.mtime) return;
+  if (drag || S.busy || S.inflight || !S.mtime || S.nofile) return;
   const gen = S.gen;
   try {
-    const res = await api('poll', S.mtime, S.day);
-    if (!res || gen !== S.gen || drag || S.busy) return;
+    const res = await api('poll', S.mtime, S.day, view());
+    if (!res || gen !== S.gen || drag || S.busy || S.inflight) return;
     if (res.error) { setStatus('読めません: ' + res.error, true); return; }
     take(res);
     setStatus('外で更新 ' + hm());
   } catch (e) { setStatus('接続できません', true); }
 }
+
+// ---- settings (the window keeps them in ~/.gantt/last.json; a browser also in localStorage)
+function local() { try { return JSON.parse(localStorage.getItem('gantt.prefs') || '{}') || {}; } catch (e) { return {}; } }
+function savePrefs(p) {
+  if (HTTP) { try { localStorage.setItem('gantt.prefs', JSON.stringify(Object.assign(local(), p))); } catch (e) { /* none */ } }
+  api('prefs', p).catch(e => fail(e.message || e));
+}
+function setFit(on) { S.fit = on; $('bFit').setAttribute('aria-pressed', String(on)); }
+function manual() { setFit(false); S.manual = {day: S.day, scale: S.scale}; savePrefs({day: S.day, scale: S.scale, fit: false}); }
 
 // ---- toolbar
 async function addRow(after, row) {
@@ -212,23 +314,37 @@ async function addRow(after, row) {
   if (g && (+g.dataset.y < sc.scrollTop || +g.dataset.y > sc.scrollTop + sc.clientHeight - 60)) sc.scrollTop = Math.max(0, +g.dataset.y - 80);
 }
 async function doUndo() {
+  if (S.nofile) return;
   S.busy = true;
   try {
-    const res = await api('undo', S.day);
+    const res = await api('undo', S.day, view());
     if (res.ok) { take(res); setStatus('元に戻しました ' + hm()); } else setStatus(res.error || 'エラー', true);
   } catch (e) { fail(e.message || e); }
   finally { S.busy = false; }
 }
-async function zoom(dir) {
-  const nd = dir > 0 ? ZOOMS.find(z => z > S.day) : [...ZOOMS].reverse().find(z => z < S.day);
-  if (!nd) return;
-  const sc = $('sc'), G = geom();
-  const centre = G ? (sc.scrollLeft + sc.clientWidth / 2 - G.x0) / G.dw : null;     // keep the middle date in the middle
-  try { localStorage.setItem('gantt.day', String(nd)); } catch (e) { /* no storage here: not remembered */ }
-  S.busy = true;
-  try { take(await api('get', nd)); } catch (e) { fail(e.message || e); } finally { S.busy = false; }
+const step = (list, cur, dir) => dir > 0 ? list.find(z => z > cur + 0.001) : [...list].reverse().find(z => z < cur - 0.001);
+async function zoomDay(dir) {              // 期間: the day width only; the date in the middle stays in the middle
+  if (S.nofile) return;
+  const sc = $('sc'), G = geom(), nd = step(ZOOMS, S.day, dir);
+  const centre = G ? (sc.scrollLeft + sc.clientWidth / 2 - G.x0) / G.dw : null;
+  if (nd) S.day = nd;
+  manual();
+  await refresh();
   const G2 = geom();
   if (G2 && centre !== null) sc.scrollLeft = Math.max(0, G2.x0 + centre * G2.dw - sc.clientWidth / 2);
+}
+async function zoomText(dir, at) {         // 文字: the whole chart's scale; the point under the mouse stays there
+  if (S.nofile) return;
+  const sc = $('sc'), G = geom(), ns = step(SCALES, S.scale, dir), box = sc.getBoundingClientRect();
+  const ax = at ? at.x - box.left : sc.clientWidth / 2, ay = at ? at.y - box.top : sc.clientHeight / 2;
+  const date = G ? (sc.scrollLeft + ax - G.x0) / G.dw : -1, fy = G ? (sc.scrollTop + ay) / G.h : 0;
+  if (ns) S.scale = ns;
+  manual();
+  await refresh();
+  const G2 = geom();
+  if (!G2) return;
+  if (date >= 0) sc.scrollLeft = Math.max(0, G2.x0 + date * G2.dw - ax);
+  sc.scrollTop = Math.max(0, fy * G2.h - ay);
 }
 function scrollToday(quiet) {
   const G = geom(), t = todayN(), sc = $('sc');
@@ -249,10 +365,124 @@ async function doShare() {
 $('bAddRow').onclick = () => addRow(S.drawer, {title: '新しい行'});
 $('bAddGroup').onclick = () => addRow(S.drawer, {group: '新しい区切り'});
 $('bUndo').onclick = doUndo;
-$('bOut').onclick = () => zoom(-1);
-$('bIn').onclick = () => zoom(1);
+$('bOut').onclick = () => zoomDay(-1);
+$('bIn').onclick = () => zoomDay(1);
+$('bTextOut').onclick = () => zoomText(-1);
+$('bTextIn').onclick = () => zoomText(1);
+$('bFit').onclick = () => {
+  setFit(!S.fit);
+  if (!S.fit) { S.day = S.manual.day; S.scale = S.manual.scale; }      // back to the last size chosen by hand
+  S.refits = 0;
+  savePrefs({fit: S.fit});
+  refresh();
+};
 $('bToday').onclick = () => scrollToday(false);
 $('bShare').onclick = doShare;
+$('bBy').onclick = () => {
+  S.byOwner = !S.byOwner;
+  $('bBy').setAttribute('aria-pressed', String(S.byOwner));
+  S.refits = 0;
+  savePrefs({by_owner: S.byOwner});
+  refresh();
+};
+
+// ---- search and the person filter (both only change what is drawn)
+let findTimer = null;
+function clearFind() {
+  $('q').value = ''; $('qx').hidden = true; clearTimeout(findTimer);
+  if (S.query) { S.query = ''; refresh(); }
+}
+$('q').addEventListener('input', () => {
+  $('qx').hidden = !$('q').value;
+  clearTimeout(findTimer);
+  findTimer = setTimeout(() => { const v = $('q').value.trim(); if (v !== S.query) { S.query = v; refresh(); } }, 150);
+});
+$('q').addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if ($('q').value) { e.stopPropagation(); clearFind(); } else $('q').blur();
+});
+$('qx').onclick = () => { clearFind(); $('q').focus(); };
+function setOwners(list) {
+  const sel = $('who'), sig = JSON.stringify(list);
+  if (sig !== S.ownSig) {
+    S.ownSig = sig;
+    sel.innerHTML = '<option value="">すべて</option>'
+      + list.map(([p, n]) => '<option value="' + esc(p) + '">' + esc(p) + '（' + n + '）</option>').join('');
+    $('people').innerHTML = list.filter(([p]) => p !== S.unset).map(([p]) => '<option value="' + esc(p) + '">').join('');
+  }
+  if (S.owner && !list.some(([p]) => p === S.owner)) { S.owner = ''; again(); }     // nobody of that name any more
+  sel.value = S.owner;
+}
+$('who').addEventListener('change', () => { S.owner = $('who').value; refresh(); });
+
+// ---- legend: folded into a button when it does not fit
+function setLegend(lg) {
+  const sig = JSON.stringify([S.kinds, lg]);
+  if (sig === S.lgSig) return;
+  S.lgSig = sig; S.legend = lg;
+  $('lgList').innerHTML = S.kinds.map(k => '<span class="lg"><i class="sw k-' + k + '"></i>' + esc(lg[k]) + '</span>').join('');
+  layoutBar();
+}
+function layoutBar() {
+  const box = $('legend');
+  box.classList.remove('folded', 'open');
+  box.classList.toggle('folded', box.scrollHeight > box.clientHeight + 1 || box.scrollWidth > box.clientWidth + 1);
+}
+let legendTimer = null;
+function showLegend(on) {
+  const box = $('legend');
+  clearTimeout(legendTimer);
+  if (!box.classList.contains('folded')) return;
+  if (on) {
+    const r = $('bLegend').getBoundingClientRect(), list = $('lgList');
+    box.classList.add('open');
+    list.style.left = Math.max(8, Math.min(r.left, window.innerWidth - list.offsetWidth - 8)) + 'px';
+  } else legendTimer = setTimeout(() => box.classList.remove('open'), 250);
+}
+$('legend').addEventListener('mouseenter', () => showLegend(true));
+$('legend').addEventListener('mouseleave', () => showLegend(false));
+$('bLegend').onclick = () => showLegend(!$('legend').classList.contains('open'));
+
+// ---- file menu (the desktop window only)
+async function openMenu() {
+  const m = $('menu');
+  if (!m.hidden) { m.hidden = true; return; }
+  let list = [];
+  try { list = await api('recent'); } catch (e) { fail(e.message || e); }
+  let h = list.length ? '' : '<div class="mn">最近のファイルなし</div>';
+  for (const f of list)
+    h += '<button class="mi' + (f.current ? ' cur' : '') + '" data-path="' + esc(f.path) + '" title="' + esc(f.path) + '"><b>'
+       + esc(f.title) + '</b><span>' + esc(f.file) + '</span></button>';
+  h += '<hr><button class="mi" data-act="pick"><b>ファイルの選択…</b></button>';
+  if (S.share) h += '<button class="mi" data-act="share"><b>共有用に書き出し</b></button>';
+  m.innerHTML = h;
+  m.style.left = $('bFile').getBoundingClientRect().left + 'px';
+  m.hidden = false;
+}
+async function switchTo(name, ...args) {   // open_file / pick: another file in this window
+  S.busy = true;
+  try {
+    const res = await api(name, ...args, S.day, Object.assign(view(), {query: '', owner: ''}));
+    if (!res || !res.ok) { if (res && !res.cancel) setStatus(res.error || 'エラー', true); return; }
+    S.query = ''; $('q').value = ''; $('qx').hidden = true; S.owner = ''; S.ownSig = '';
+    S.sel = null; closeDrawer();
+    take(res);
+    $('sc').scrollTop = 0;
+    scrollToday(true);
+    setStatus('読み込み ' + hm());
+  } catch (e) { fail(e.message || e); }
+  finally { S.busy = false; }
+}
+$('bFile').onclick = openMenu;
+$('menu').addEventListener('click', e => {
+  const b = e.target.closest('.mi');
+  if (!b) return;
+  $('menu').hidden = true;
+  if (b.dataset.act === 'pick') switchTo('pick');
+  else if (b.dataset.act === 'share') doShare();
+  else if (!b.classList.contains('cur')) switchTo('open_file', b.dataset.path);
+});
+document.addEventListener('mousedown', e => { if (!$('menu').hidden && !e.target.closest('#menu,#bFile')) $('menu').hidden = true; });
 
 // ---- drawer
 function openDrawer(rid, i, focusName) {
@@ -273,7 +503,7 @@ function drawerHTML(r) {
   if (grp) h += '<label class="fl"><span>名前</span><input data-f="group"></label>';
   else {
     h += '<label class="fl"><span>項目</span><input data-f="title"></label>'
-       + '<label class="fl"><span>担当</span><input data-f="owner"></label>'
+       + '<label class="fl"><span>担当</span><input data-f="owner" list="people"></label>'
        + '<div class="fl"><span>リンク</span><input data-f="link"><button class="sm" data-act="openlink">開く</button></div>'
        + '<label class="fl top"><span>メモ</span><textarea data-f="note"></textarea></label><hr>';
     const opts = S.kinds.map(k => '<option value="' + k + '">' + esc(S.legend[k]) + '</option>').join('');
@@ -374,7 +604,7 @@ $('drawer').addEventListener('change', e => { if (e.target.type === 'date') late
 $('drawer').addEventListener('focusout', e => flush(e.target));
 $('drawer').addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (b) act(b); });
 
-// ---- chart: drag, click, double-click
+// ---- chart: drag, click, double-click (data-r / data-i are the data's own, also in a filtered or by-person view)
 const chart = $('chart');
 function modeAt(g, clientX) {                       // within 5 px of a bar's end: resize (bars of 14 px or more)
   const b = g.querySelector('rect.b');
@@ -454,21 +684,59 @@ chart.addEventListener('dblclick', async e => {
   if (res) openDrawer(rid, rowOf(rid).items.length - 1, true);
 });
 
-// ---- keys
+// ---- keys, Ctrl + wheel
 window.addEventListener('keydown', e => {
   const tag = (document.activeElement && document.activeElement.tagName) || '';
   const inField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-  if (e.key === 'Escape') { if (drag) { endDrag(); paint(); } else closeDrawer(); return; }
-  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z' && !inField) { e.preventDefault(); doUndo(); return; }
+  const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
+  if (mod && (e.key === '+' || e.key === '=' || e.key === ';' || e.code === 'NumpadAdd')) { e.preventDefault(); zoomText(1); return; }
+  if (mod && (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract')) { e.preventDefault(); zoomText(-1); return; }
+  if (mod && !e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); $('q').focus(); $('q').select(); return; }
+  if (e.key === 'Escape') {
+    if (!$('menu').hidden) $('menu').hidden = true;
+    else if (drag) { endDrag(); paint(); } else closeDrawer();
+    return;
+  }
+  if (mod && !e.shiftKey && e.key.toLowerCase() === 'z' && !inField) { e.preventDefault(); doUndo(); return; }
   if (e.key === 'Delete' && !inField && S.sel && !drag) { e.preventDefault(); delItem(rowOf(S.sel.r), S.sel.i); }
 });
+window.addEventListener('wheel', e => {
+  if (!e.ctrlKey && !e.metaKey) return;
+  e.preventDefault();                               // no page zoom: the chart's own scale instead
+  const now = Date.now();
+  if (!e.deltaY || now - S.wheelAt < 60) return;
+  S.wheelAt = now;
+  zoomText(e.deltaY < 0 ? 1 : -1, {x: e.clientX, y: e.clientY});
+}, {passive: false});
+let resizeTimer = null;
+function resized() {                                // the window changed size (not a scrollbar: those are checkFit's)
+  S.size = innerWidth + 'x' + innerHeight;
+  layoutBar();
+  S.refits = 0;
+  if (S.fit) refresh();
+}
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(resized, 150); });
+function tick() {                                   // every second: a resize the event missed (a hidden window), the file
+  if (S.size && S.size !== innerWidth + 'x' + innerHeight && !drag) resized();
+  poll();
+}
 
 // ---- start
 (async function () {
-  let day = null;
-  try { day = +localStorage.getItem('gantt.day') || null; } catch (e) { /* no storage here */ }
-  try { take(await api('get', day)); scrollToday(true); } catch (e) { fail(e.message || e); }
-  setInterval(poll, 1000);
+  try {
+    const p = await api('prefs', HTTP ? local() : null);
+    S.day = p.day; S.scale = p.scale; S.manual = {day: p.day, scale: p.scale};
+    setFit(p.fit !== false);
+    S.byOwner = p.by_owner === true;
+    $('bBy').setAttribute('aria-pressed', String(S.byOwner));
+    $('bFile').hidden = HTTP;                       // a browser has no file dialog: serve shows its one file
+    await refresh();
+    if (S.nofile) { if (!HTTP) switchTo('pick'); }
+    else scrollToday(true);
+  } catch (e) { fail(e.message || e); }
+  S.size = innerWidth + 'x' + innerHeight;
+  layoutBar();
+  setInterval(tick, 1000);
 })();
 </script>
 </body>

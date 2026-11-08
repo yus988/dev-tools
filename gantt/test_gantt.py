@@ -6,6 +6,7 @@ import copy
 import hashlib
 import io
 import json
+import math
 import os
 import shutil
 import tempfile
@@ -297,42 +298,86 @@ class RenderTest(unittest.TestCase):
 
 
 class ScaleTest(unittest.TestCase):
-    # sha256 of render(sample(), today='2026-11-10', **kw), taken with the renderer before scale / query / owner existed
+    # sha256 of render(sample(), today='2026-11-10', **kw) for the outputs of svg / png / pdf / embed / share, taken with
+    # the renderer before the window's sizes, search and people existed
     GOLDEN = [({}, 'efe1eb4265c88eb1050e5768c6015e77fdb2df137cd6ba38676aab9fa39cb7e4'),
-              ({'interactive': True}, 'c2aabbcb4f1e511f0872f664cc6edb8fc2f84d1ea4617dd9aca03cbb55e03c7b'),
               ({'legend': True}, 'f672d41a1e7d500a22d24b36c3c059a25e2560a5d50d0f6ad6507381e345caa3'),
-              ({'interactive': True, 'legend': True, 'zoom': True},
-               '18278294bdb47288b9c7bbb08463f51c8dabdb8513352f2a5f1f8f499c846bf8'),
+              ({'legend': True, 'zoom': True}, 'e4bb35e0bb66b6d006df44fa2ed0a850269fdeb41dcc30454381f851b3561eb4'),
               ({'day': 8}, '53367ec513de4c8813ded2ebc09241b9358824ec2c50551a84d2ac379aeba421'),
               ({'day': 32, 'legend': True}, '37a0b09a2e1cb52fa5063226d0dd50f0e6a2aa86208f84d3136b22fcde07ed37'),
-              ({'day': 6, 'interactive': True}, 'dabd4ee0f98595478a5ede9b806934d6c208288ae8b9a32b48473f6f27672fb1')]
+              ({'day': 6}, 'b16579f6e6f88a184668aae9de4da32c68b9d265b6edb6c88e697b98ac396479'),
+              ({'day': 40, 'legend': True, 'zoom': True}, 'cb3e1204a847dcc4b98ad37fae9fa85683419d22e22e7b63917f498cb45226e5')]
 
-    def test_default_scale_is_byte_identical_to_before(self):
+    def test_defaults_are_byte_identical_to_before(self):
         for kw, digest in self.GOLDEN:
-            for extra in ({}, {'scale': 1.0}, {'scale': 1, 'query': '', 'owner': None, 'by_owner': False}):
+            for extra in ({}, {'text_scale': 1.0, 'row_scale': 1.0},
+                          {'text_scale': 1, 'row_scale': 1, 'label_width': None, 'query': '', 'owner': None, 'by_owner': False}):
                 svg = gantt.render(sample(), today='2026-11-10', **dict(kw, **extra))
                 self.assertEqual(hashlib.sha256(svg.encode('utf-8')).hexdigest(), digest, (kw, extra))
+        svg, _, _ = gantt._draw(sample(), 14, False, True, '2026-11-10')          # what png / pdf / share draw
+        self.assertEqual(hashlib.sha256(svg.encode('utf-8')).hexdigest(), self.GOLDEN[1][1])
 
-    def test_scale_makes_text_rows_and_columns_bigger(self):
+    def rows_of(self, root):
+        return [g for g in root.iter(SVG + 'g') if g.get('class') == 'row']
+
+    def test_text_scale(self):
         one = ET.fromstring(gantt.render(small(), interactive=True))
-        big = ET.fromstring(gantt.render(small(), interactive=True, scale=1.5))
+        big = ET.fromstring(gantt.render(small(), interactive=True, text_scale=1.5))
         css = big.find(SVG + 'style').text
         self.assertIn('font-size:17.25px', css)                  # 11.5 x 1.5
         self.assertIn('.gantt .sl,.gantt .hw{font-size:15px}', css)
         self.assertEqual(int(big.get('data-x0')), int(one.get('data-x0')) * 3 // 2)     # title and owner columns
+        self.assertEqual((big.get('data-tc'), big.get('data-hh')), ('360', '54'))       # the date header too
         self.assertEqual(big.get('data-dw'), '14')                # the day width is separate
-        rows = [g for g in big.iter(SVG + 'g') if g.get('class') == 'row']
-        self.assertEqual([g.get('data-h') for g in rows], ['36', '33', '36'])
-        self.assertEqual(float(big.get('height')), 54 + 36 + 33 + 36 + 1)    # header and rows (no strip) x 1.5, + 1
+        self.assertEqual([g.get('data-h') for g in self.rows_of(big)], ['36', '33', '36'])    # rows as high as the text
+        self.assertEqual(float(big.get('height')), 54 + 36 + 33 + 36 + 1)
         bar = [r for r in big.iter(SVG + 'rect') if r.get('class') == 'b k-plan'][0]
         self.assertEqual((bar.get('y'), bar.get('height')), ('60', '24'))        # row y 54 + 4 x 1.5, 16 x 1.5
-        self.assertNotRegex(gantt.render(sample(), scale=1.37, day=13.37), r'\d\.\d{3}')
+        self.assertNotRegex(gantt.render(sample(), text_scale=1.37, row_scale=2.13, day=13.37), r'\d\.\d{3}')
 
-    def test_scale_is_clamped(self):
-        self.assertEqual(gantt.clamp_scale(0.1), 0.8)
-        self.assertEqual(gantt.clamp_scale(7), 2)
-        self.assertEqual(gantt.clamp_scale(1.234), 1.23)
-        self.assertEqual(gantt.render(small(), scale=9), gantt.render(small(), scale=2))
+    def test_row_scale(self):
+        tall = ET.fromstring(gantt.render(small(), interactive=True, row_scale=2))
+        self.assertEqual(tall.find(SVG + 'style').text, ET.fromstring(gantt.render(small(), interactive=True)).find(SVG + 'style').text)
+        self.assertEqual((tall.get('data-x0'), tall.get('data-hh')), ('320', '36'))        # columns and header as before
+        self.assertEqual([g.get('data-h') for g in self.rows_of(tall)], ['48', '44', '48'])
+        bar = [r for r in tall.iter(SVG + 'rect') if r.get('class') == 'b k-plan'][0]
+        self.assertEqual((bar.get('y'), bar.get('height')), ('44', '32'))        # the bar grows with its row
+        text = [t for t in tall.iter(SVG + 'text') if t.text == 'Job'][0]
+        self.assertEqual(text.get('y'), '64')                     # on the middle of the row: 36 + 24 + 4
+        ms = [p for p in tall.iter(SVG + 'path') if (p.get('class') or '').startswith('m ')][0]
+        self.assertIn(' 60L', ms.get('d'))                        # the milestone keeps its size, on the middle
+        low = ET.fromstring(gantt.render(small(), interactive=True, row_scale=0.7))
+        self.assertEqual([g.get('data-h') for g in self.rows_of(low)], ['24', '22', '24'])    # never lower than the text
+        both = ET.fromstring(gantt.render(small(), interactive=True, text_scale=1.5, row_scale=1.2))
+        self.assertEqual([g.get('data-h') for g in self.rows_of(both)], ['36', '33', '36'])
+        d = small()
+        d['lines'] = [{'on': '2026-11-20', 'label': 'Freeze'}]
+        strip = ET.fromstring(gantt.render(d, interactive=True, row_scale=2))
+        self.assertEqual(strip.get('data-hh'), '60')              # header 36 + strip 12 x 2
+
+    def test_label_width_override(self):
+        d = small()
+        root = ET.fromstring(gantt.render(d, interactive=True, label_width=300))
+        self.assertEqual((root.get('data-x0'), root.get('data-tc')), ('380', '300'))
+        d['label_width'] = 200                                     # the window's width wins over the data's
+        self.assertEqual(ET.fromstring(gantt.render(d, interactive=True, label_width=300)).get('data-tc'), '300')
+        self.assertEqual(ET.fromstring(gantt.render(d, interactive=True)).get('data-tc'), '200')
+        self.assertEqual(ET.fromstring(gantt.render(d, interactive=True, label_width=300, text_scale=1.5)).get('data-tc'), '450')
+        self.assertEqual(ET.fromstring(gantt.render(d, interactive=True, label_width=50)).get('data-tc'), '120')
+        self.assertEqual(gantt.render(small(), label_width=None), gantt.render(small()))
+
+    def test_scales_are_clamped(self):
+        self.assertEqual((gantt.clamp_text(0.1), gantt.clamp_text(7), gantt.clamp_text(1.234)), (0.8, 2, 1.23))
+        self.assertEqual((gantt.clamp_rows(0.1), gantt.clamp_rows(7), gantt.clamp_rows(1.234)), (0.7, 3, 1.23))
+        self.assertEqual((gantt.clamp_label(1), gantt.clamp_label(9999), gantt.clamp_label(250.4)), (120, 1200, 250))
+        self.assertEqual(gantt.render(small(), text_scale=9), gantt.render(small(), text_scale=2))
+
+    def test_the_window_draws_no_title_tooltips(self):
+        d = small()
+        d['rows'][2]['items'] = [{'from': '2026-11-02', 'to': '2026-11-04', 'label': 'A rather long label', 'note': 'n'},
+                                 {'from': '2026-11-05', 'to': '2026-11-06', 'label': 'Next'}]
+        self.assertIn('<title>', gantt.render(d))
+        self.assertNotIn('<title>', gantt.render(d, interactive=True))     # app.html shows its own details
 
 
 class ViewTest(unittest.TestCase):
@@ -347,10 +392,14 @@ class ViewTest(unittest.TestCase):
         self.assertEqual(gantt.people('A, B/C、D Ｅ　F (x) G((y)z)さん'), ['A', 'B', 'C', 'D', 'Ｅ', 'F', 'G'])
         self.assertEqual(gantt.people('佐藤・佐藤さん'), ['佐藤'])
         self.assertEqual(gantt.people('（未定）'), [])
+        self.assertEqual(gantt.people('A（B・C'), ['A（B', 'C'])           # an unclosed bracket is part of a name
         self.assertEqual(gantt.people(None), [])
+        for s in ('田中さん・佐藤（要相談）', 'A, B/C、D Ｅ　F (x) G((y)z)さん', 'A（B・C', ')x(', ''):
+            self.assertEqual(''.join(t for _, t in gantt.owner_parts(s)), s)      # the pieces give the string back
         d = small()
         d['rows'] += [{'id': 'c', 'title': 'C', 'owner': 'Y・X（lead）'}, {'id': 'e', 'title': 'E', 'owner': 'Yさん'}]
         self.assertEqual(gantt.owners(d), [('X', 2), ('Y', 2), ('未定', 1)])      # most rows first, 未定 last
+        self.assertEqual(gantt.members(d), {'X': ['a', 'c'], '未定': ['b'], 'Y': ['c', 'e']})
 
     def test_query(self):
         d = sample()
@@ -393,7 +442,7 @@ class ViewTest(unittest.TestCase):
             ('p:PM', '1'), ('dates', None),
             ('p:A', '1'), ('encl', None),
             ('p:未定', '1'), ('avail', None)])
-        self.assertIn('>B（3）<', svg)
+        self.assertIn('>B（3 件）<', svg)
         self.assertNotIn('class="ttl" data-r=""', svg)          # a person header is not a row of the data
         by_id = {r['id']: r for r in d['rows']}
         for g in ET.fromstring(svg).iter(SVG + 'g'):
@@ -404,6 +453,41 @@ class ViewTest(unittest.TestCase):
         self.assertEqual(self.rows(gantt.render(d, interactive=True, by_owner=True, query='bench')),
                          [('p:B', '1'), ('test', None)])
         ET.fromstring(gantt.render(d, by_owner=True, legend=True))          # static too
+
+
+class RenameTest(unittest.TestCase):
+    def test_rename_in_an_owner_string(self):
+        r = gantt.rename_owner
+        self.assertEqual(r('アルバイト（未定）', 'アルバイト', '田中'), '田中（未定）')
+        self.assertEqual(r('田中・アルバイト', 'アルバイト', '佐藤'), '田中・佐藤')
+        self.assertEqual(r('アルバイトさん、 佐藤', 'アルバイト', '田中'), '田中さん、 佐藤')        # さん and the spaces stay
+        self.assertEqual(r('佐藤（アルバイトと分担）', 'アルバイト', '田中'), '佐藤（アルバイトと分担）')   # brackets do not count
+        self.assertEqual(r('アルバイトA・アルバイト', 'アルバイト', 'X'), 'アルバイトA・X')               # whole names only
+        self.assertEqual(r('アルバイト', 'アルバイト', 'A・B'), 'A・B')                                 # one person into two
+
+    def test_rename_op_is_one_change(self):
+        d = small()
+        d['rows'] += [{'id': 'c', 'title': 'C', 'owner': 'アルバイト（未定）'},
+                      {'id': 'e', 'title': 'E', 'owner': '田中・アルバイト'}, {'id': 'f', 'title': 'F', 'owner': '佐藤'}]
+        t = gantt.apply(d, [{'op': 'rename_person', 'from': 'アルバイト', 'to': '鈴木'}])
+        self.assertEqual(t, ['担当の名前「アルバイト」→「鈴木」: 「C」、「E」（2 行）'])
+        self.assertEqual([r.get('owner') for r in d['rows']], ['X', None, None, '鈴木（未定）', '田中・鈴木', '佐藤'])
+        self.assertEqual(len(d['log']), 1)
+        self.assertEqual(gantt.apply(d, [{'op': 'rename_person', 'from': 'nobody', 'to': 'x'}]), [])
+        with self.assertRaises(ValueError):
+            gantt.apply(d, [{'op': 'rename_person', 'from': '鈴木', 'to': '  '}])
+
+    def test_one_undo_puts_every_row_back(self):
+        with tempfile.TemporaryDirectory() as t:
+            p = os.path.join(t, 'a.gantt.json')
+            d = small()
+            d['rows'] += [{'id': 'c', 'title': 'C', 'owner': 'X・Y'}]
+            gantt.save(p, d)
+            api = gantt.Api(p)
+            r = api.apply([{'op': 'rename_person', 'from': 'X', 'to': 'Z'}])
+            self.assertEqual(r['members'], {'Z': ['a', 'c'], '未定': ['b'], 'Y': ['c']})
+            self.assertTrue(api.undo()['ok'])
+            self.assertEqual([r.get('owner') for r in gantt.load(p)['rows']], ['X', None, None, 'X・Y'])
 
 
 class FitTest(unittest.TestCase):
@@ -421,19 +505,22 @@ class FitTest(unittest.TestCase):
 
     def test_fit_fills_the_window(self):
         d = sample()
-        d['rows'] = d['rows'] * 3                                 # 816 px tall at scale 1
-        for w, h in ((1264, 790), (1900, 1000), (1100, 700)):
-            day, u = gantt.fit_view(d, w, h)
-            self.assertTrue(gantt.SCALE_MIN < u < gantt.SCALE_MAX)
-            svg = ET.fromstring(gantt.render(d, day=day, scale=u))
+        d['rows'] = d['rows'] * 3                                 # header 36, then strip and rows 780 px at scale 1
+        for w, h, text in ((1264, 900, 1), (1900, 1000, 1), (1100, 1400, 1), (1264, 1300, 1.5)):
+            day, rows = gantt.fit_view(d, w, h, text_scale=text)
+            self.assertTrue(gantt.ROWS_MIN < rows < gantt.ROWS_MAX)
+            svg = ET.fromstring(gantt.render(d, day=day, row_scale=rows, text_scale=text))
             sw, sh = float(svg.get('width')), float(svg.get('height'))
             self.assertLessEqual(sw, w)
             self.assertGreater(sw, w - 70 * 0.01 - 1)            # 70 days, the day width floored to 0.01
             self.assertLessEqual(sh, h)
-            self.assertGreater(sh, h - 816 * 0.01 - 2)          # the scale floored to 0.01
-        self.assertEqual(gantt.fit_view(sample(), 1200, 3000)[1], 2)        # few rows: as big as it goes
+            self.assertGreater(sh, h - 780 * 0.01 - 2)          # the row scale floored to 0.01
+        self.assertEqual(gantt.fit_view(sample(), 1200, 3000)[1], 3)        # few rows: as high as they go
+        self.assertLess(gantt.fit_view(d, 1264, 700, text_scale=1.5)[1], 1.5)   # lower than the text wants: it scrolls
+        lw = gantt.fit_view(d, 1264, 900, label_width=500)[0]
+        self.assertEqual(lw, gantt.clamp_day(math.floor((1264 - 0.5 - 580) / 70 * 100) / 100))
         d['rows'] = d['rows'] * 10
-        self.assertEqual(gantt.fit_view(d, 1200, 600)[1], 0.8)      # many rows: the smallest, then scroll
+        self.assertEqual(gantt.fit_view(d, 1200, 600)[1], 0.7)      # many rows: the lowest, then scroll
         self.assertEqual(gantt.fit_view(d, 300, 600)[0], 6)          # narrow: the smallest day, then scroll
 
 
@@ -474,9 +561,9 @@ class RecentTest(unittest.TestCase):
         api = gantt.Api(self.files[0])
         api._opened = gantt.push_recent
         api.apply([{'op': 'row', 'row': 'b', 'set': {'owner': 'Q'}}])
-        r = api.open_file(self.files[1], None, {'scale': 1.1})
+        r = api.open_file(self.files[1], None, {'text': 1.1})
         self.assertTrue(r['ok'])
-        self.assertEqual((r['title'], r['file'], r['scale']), ('Agent Gantt — Plan 1', 'p1.gantt.json', 1.1))
+        self.assertEqual((r['title'], r['file'], r['text']), ('Agent Gantt — Plan 1', 'p1.gantt.json', 1.1))
         self.assertFalse(api.undo()['ok'])                        # undo belongs to the other file
         self.assertEqual(gantt.load(self.files[0])['rows'][2]['owner'], 'Q')
         listed = api.recent()
@@ -690,31 +777,35 @@ class ApiTest(unittest.TestCase):
         self.assertFalse(set(gantt.Handler.APP_ONLY) & set(gantt.Handler.METHODS))     # no file switching over HTTP
 
     def test_view_argument(self):
-        g = self.api.get(None, {'query': 'LAYOUT', 'scale': 1.5})
-        self.assertEqual((g['shown'], g['total'], g['scale']), (1, 7, 1.5))
+        g = self.api.get(None, {'query': 'LAYOUT', 'text': 1.5, 'rows': 2, 'label_width': 300})
+        self.assertEqual((g['shown'], g['total'], g['text'], g['rows'], g['label_width']), (1, 7, 1.5, 2, 300))
+        self.assertIn('data-tc="450"', g['svg'])
         self.assertIn('class="qh"', g['svg'])
         self.assertEqual([p for p, _ in g['owners']], ['B', 'C', 'PM', 'A', '未定'])
         g = self.api.get(None, {'owner': 'C', 'by_owner': True})
         self.assertEqual(g['shown'], 2)
         self.assertIn('data-p="C"', g['svg'])
-        g = self.api.get(None, {'fit': True, 'w': 1200, 'h': 700})
-        self.assertEqual((g['day'], g['scale']), gantt.fit_view(sample(), 1200, 700))
+        self.assertEqual(g['members']['C'], ['fw', 'app'])
+        g = self.api.get(None, {'fit': True, 'w': 1200, 'h': 700, 'text': 1.2, 'rows': 0.9})
+        self.assertEqual((g['day'], g['rows'], g['text']), gantt.fit_view(sample(), 1200, 700, False, 1.2) + (1.2,))
         self.assertEqual(g['fitted'], [1200, 700])
         self.assertIsNone(self.api.get()['fitted'])
         self.assertLessEqual(float(ET.fromstring(g['svg']).get('width')), 1200)
         self.assertEqual(self.api.get(13.5)['day'], 13.5)
         r = self.move()                                          # the view also comes back from apply
-        self.assertEqual(r['scale'], 1.3)                        # the window's default size
+        self.assertEqual((r['text'], r['rows'], r['label_width']), (1.3, 1, None))      # the window's defaults
 
     def test_prefs(self):
         kept = []
         self.api._remember = lambda **kw: kept.append(kw)
-        self.assertEqual(self.api.prefs(), {'day': 14, 'scale': 1.3, 'fit': True, 'by_owner': False})
-        p = self.api.prefs({'scale': 9, 'fit': False, 'day': 'x', 'by_owner': 1, 'other': 2})
-        self.assertEqual(p, {'day': 14, 'scale': 2, 'fit': False, 'by_owner': False})
-        self.assertEqual(kept, [{'scale': 2, 'fit': False}])
-        self.assertEqual(self.api.get()['scale'], 2)
-        self.assertEqual(gantt.Api(self.path, 10, {'scale': 1.1, 'fit': False}).prefs()['scale'], 1.1)
+        self.assertEqual(self.api.prefs(), {'day': 14, 'text': 1.3, 'rows': 1, 'fit': True, 'by_owner': False,
+                                            'label_width': None})
+        p = self.api.prefs({'text': 9, 'rows': 0.1, 'fit': False, 'day': 'x', 'by_owner': 1, 'label_width': 50, 'other': 2})
+        self.assertEqual(p, {'day': 14, 'text': 2, 'rows': 0.7, 'fit': False, 'by_owner': False, 'label_width': 120})
+        self.assertEqual(kept, [{'text': 2, 'rows': 0.7, 'fit': False, 'label_width': 120}])
+        self.assertEqual(self.api.prefs({'label_width': None})['label_width'], None)     # back to the data's
+        self.assertEqual((self.api.get()['text'], self.api.get()['rows']), (2, 0.7))
+        self.assertEqual(gantt.Api(self.path, 10, {'scale': 1.1, 'fit': False}).prefs()['text'], 1.1)   # the first version's key
 
     def test_without_a_file(self):
         api = gantt.Api(None)

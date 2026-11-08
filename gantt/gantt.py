@@ -11,7 +11,7 @@ bars, edit fields), and the same renderer writes a static SVG / PNG / PDF to sha
   python gantt.py embed FILE PAGE [--day N]             SVG between <!-- gantt:begin --> and <!-- gantt:end -->
   python gantt.py changes FILE [--peek] [--all]         what the person changed since the agent last looked
   python gantt.py check FILE                            validate
-  python gantt.py selftest FILE                         open the app hidden and drive it (nothing is written)
+  python gantt.py selftest FILE [--write]               open the app hidden and drive it (--write: rename too)
 
 FILE is a *.gantt.json (README.md). Standard library only; app / selftest import pywebview.
 """
@@ -395,8 +395,26 @@ def op_meta(d, o):
     return '全体の' + '、'.join(parts) if parts else None
 
 
+def op_rename_person(d, o):
+    """Call the person `from` `to` in every row's owner (the other people and the text in brackets stay)."""
+    old, new = o.get('from'), o.get('to')
+    if not isinstance(old, str) or not isinstance(new, str) or not old.strip() or not new.strip():
+        raise ValueError('from / to: the old and the new name')
+    old, new = old.strip(), new.strip()
+    changed = []
+    for r in d['rows']:
+        if not is_group(r) and isinstance(r.get('owner'), str):
+            v = rename_owner(r['owner'], old, new)
+            if v != r['owner']:
+                r['owner'] = v
+                changed.append('「%s」' % name_of(r))
+    if not changed:
+        return None
+    return '担当の名前「%s」→「%s」: %s（%d 行）' % (old, new, '、'.join(changed), len(changed))
+
+
 OPS = {'item': op_item, 'add_item': op_add_item, 'del_item': op_del_item, 'row': op_row, 'add_row': op_add_row,
-       'del_row': op_del_row, 'move_row': op_move_row, 'meta': op_meta}
+       'del_row': op_del_row, 'move_row': op_move_row, 'meta': op_meta, 'rename_person': op_rename_person}
 
 
 def apply(data, ops, by='user'):
@@ -529,7 +547,9 @@ KIND_CSS = {
     'done': 'fill:var(--ok,#e6f4ea);stroke:var(--oks,#4b9a5f)',
 }
 HEAD_H, ROW_H, GROUP_H, STRIP_H, FS = 36, 24, 22, 12, 11.5
-SCALE_MIN, SCALE_MAX = 0.8, 2.0                             # the whole chart's size (rows, header, text), 1 = as before
+TEXT_MIN, TEXT_MAX = 0.8, 2.0       # text scale: font, the title and owner columns, the date header (1 = as before)
+ROWS_MIN, ROWS_MAX = 0.7, 3.0       # row scale: row, group and strip heights; never below what the text needs
+LABEL_MIN, LABEL_MAX = 120, 1200    # a title column width set in the window (px at text scale 1)
 
 
 def css(u=1.0):
@@ -574,33 +594,78 @@ def clamp_day(day):
     return _tidy(max(6.0, min(40.0, round(float(day), 2))))
 
 
-def clamp_scale(scale):
-    """The whole chart's scale: 0.8-2.0, to 0.01."""
-    return _tidy(max(SCALE_MIN, min(SCALE_MAX, round(float(scale), 2))))
+def clamp_text(scale):
+    """The text scale: 0.8-2.0, to 0.01."""
+    return _tidy(max(TEXT_MIN, min(TEXT_MAX, round(float(scale), 2))))
+
+
+def clamp_rows(scale):
+    """The row scale: 0.7-3.0, to 0.01."""
+    return _tidy(max(ROWS_MIN, min(ROWS_MAX, round(float(scale), 2))))
+
+
+def clamp_label(width):
+    """A title column width from the window: 120-1200 px (at text scale 1), whole px."""
+    return int(round(max(LABEL_MIN, min(LABEL_MAX, float(width)))))
 
 
 # ---------------------------------------------------------------- people, search, the rows shown
 UNSET = '未定'                                              # the person of a row without an owner
-_PAREN = re.compile(r'[（(][^（）()]*[）)]')
-_SPLIT = re.compile(r'[・、,，/／\s]+')
+_SEP = re.compile(r'[・、,，/／\s]')
+_OPEN, _CLOSE = '（(', '）)'
+
+
+def owner_parts(owner):
+    """An owner string in pieces, in order: [kind, text] with kind 'name', 'sep' (・ 、 , / or spaces) or 'paren' (a
+    balanced （…） / (…), nested too; an unbalanced bracket is part of a name). Joined, they give the string back."""
+    s = owner if isinstance(owner, str) else ''
+    parts, i = [], 0
+    while i < len(s):
+        kind, j = None, i + 1
+        if s[i] in _OPEN:
+            depth, k = 0, i
+            while k < len(s):
+                depth += (s[k] in _OPEN) - (s[k] in _CLOSE)
+                if depth == 0:
+                    break
+                k += 1
+            if k < len(s):
+                kind, j = 'paren', k + 1
+        if kind is None:
+            kind = 'sep' if _SEP.match(s[i]) else 'name'
+        if kind != 'paren' and parts and parts[-1][0] == kind:
+            parts[-1][1] += s[i:j]
+        else:
+            parts.append([kind, s[i:j]])
+        i = j
+    return parts
+
+
+def _person(name):
+    p = name.strip()
+    return p[:-2].strip() if p.endswith('さん') else p
 
 
 def people(owner):
-    """The people in an owner string: text in （） / () dropped, split on ・ 、 , / and spaces, a trailing さん dropped.
-    '田中さん・佐藤（要相談）' -> ['田中', '佐藤']."""
-    if not isinstance(owner, str):
-        return []
-    s, before = owner, None
-    while s != before:                                      # nested parentheses: from the inside out
-        before, s = s, _PAREN.sub(' ', s)
+    """The people in an owner string: the text in （） / () does not count, ・ 、 , / and spaces separate people, a
+    trailing さん is dropped. '田中さん・佐藤（要相談）' -> ['田中', '佐藤']."""
     out = []
-    for p in _SPLIT.split(s):
-        p = p.strip()
-        if p.endswith('さん'):
-            p = p[:-2].strip()
+    for kind, text in owner_parts(owner):
+        p = _person(text) if kind == 'name' else ''
         if p and p not in out:
             out.append(p)
     return out
+
+
+def rename_owner(owner, old, new):
+    """`owner` with the person `old` called `new` (a trailing さん stays); the other people, the separators and the text
+    in brackets stay as they are."""
+    out = []
+    for kind, text in owner_parts(owner):
+        if kind == 'name' and _person(text) == old:
+            text = new + ('さん' if text.endswith('さん') and not new.endswith('さん') else '')
+        out.append(text)
+    return ''.join(out)
 
 
 def people_of(row):
@@ -617,6 +682,16 @@ def owners(data):
                 count[p] = count.get(p, 0) + 1
                 first.setdefault(p, len(first))
     return sorted(count.items(), key=lambda pc: (pc[0] == UNSET, -pc[1], first[pc[0]]))
+
+
+def members(data):
+    """{person: [row ids]} in data order."""
+    out = {}
+    for r in data.get('rows') or []:
+        if isinstance(r, dict) and not is_group(r):
+            for p in people_of(r):
+                out.setdefault(p, []).append(r.get('id'))
+    return out
 
 
 class Person(dict):
@@ -669,7 +744,7 @@ def view_rows(data, query=None, owner=None, by_owner=False):
     for p, _ in owners(data):
         mine = [(r, h) for r, h in flat if p in people_of(r)] if not owner or p == owner else []
         if mine:
-            res.append((Person(group='%s（%d）' % (p, len(mine)), person=p), ()))
+            res.append((Person(group='%s（%d 件）' % (p, len(mine)), person=p), ()))
             res += mine
     return res
 
@@ -706,37 +781,40 @@ def _marks(data, d0, d1):
     return offs, lines
 
 
-def _columns(data):
-    """Width of the title and owner columns at scale 1."""
+def _columns(data, label_width=None):
+    """Widths of the title and owner columns at text scale 1; label_width (the window's) wins over the data's."""
     rows = [r for r in data.get('rows') or [] if isinstance(r, dict)]
-    return int(data.get('label_width') or 240), 80 if any(r.get('owner') for r in rows) else 0
+    tcol = clamp_label(label_width) if num(label_width) else int(data.get('label_width') or 240)
+    return tcol, 80 if any(r.get('owner') for r in rows) else 0
 
 
-def fit_view(data, width, height, by_owner=False):
-    """(day, scale) that make the chart fill width x height px: the scale makes all rows (no search, no person filter)
-    fill the height, within 0.8-2.0 (below that the chart scrolls); then the day width makes the whole date range fill
-    the width, within 6-40."""
+def fit_view(data, width, height, by_owner=False, text_scale=1.0, label_width=None):
+    """(day, row scale) that make the chart fill width x height px at this text scale: the row scale makes all rows (no
+    search, no person filter) fill the height, within 0.7-3.0 (rows never get lower than the text needs; then the
+    chart scrolls); the day width makes the whole date range fill the width, within 6-40."""
+    u = clamp_text(text_scale)
     d0, d1 = date_range(data)
     nd = (d1 - d0).days + 1
     offs, lines = _marks(data, d0, d1)
     rows = [r for r, _ in view_rows(data, by_owner=by_owner)]
-    tall = HEAD_H + (STRIP_H if any(lb for _, lb in offs + lines) else 0) + sum(
-        GROUP_H if is_group(r) else ROW_H for r in rows)
-    u = clamp_scale(math.floor((float(height) - 1.5) / tall * 100) / 100)
-    tcol, ocol = _columns(data)
+    tall = (STRIP_H if any(lb for _, lb in offs + lines) else 0) + sum(GROUP_H if is_group(r) else ROW_H for r in rows)
+    r = clamp_rows(math.floor((float(height) - 1.5 - HEAD_H * u) / tall * 100) / 100) if tall else 1
+    tcol, ocol = _columns(data, label_width)
     day = clamp_day(math.floor((float(width) - 0.5 - (tcol + ocol) * u) / nd * 100) / 100)
-    return day, u
+    return day, r
 
 
-def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=None, zoom=False, scale=1.0, query=None,
-          owner=None, by_owner=False):
+def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=None, zoom=False, text_scale=1.0,
+          row_scale=1.0, label_width=None, query=None, owner=None, by_owner=False):
     day = clamp_day(day)
-    u = clamp_scale(scale)                                  # every length below is at scale 1 times u
+    u = clamp_text(text_scale)                              # text, columns, header, paddings: at scale 1 times u
+    v = max(clamp_rows(row_scale), u)                       # row heights: at scale 1 times v (v >= u: the text fits)
+    tt = (lambda s: '') if interactive else (lambda s: '<title>%s</title>' % s)     # the window has its own tooltip
     d0, d1 = date_range(data)
     nd = (d1 - d0).days + 1
     shown = view_rows(data, query, owner, by_owner)
     rows = [r for r, _ in shown]
-    tcol, ocol = _columns(data)
+    tcol, ocol = _columns(data, label_width)
     tcol, ocol = tcol * u, ocol * u
     fs, head = FS * u, HEAD_H * u
     x0 = tcol + ocol
@@ -751,12 +829,12 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
         return (a, b) if a <= b else None
 
     offs, lines = _marks(data, d0, d1)
-    strip = STRIP_H * u if any(lb for _, lb in offs + lines) else 0
+    strip = STRIP_H * v if any(lb for _, lb in offs + lines) else 0
     by = head
     y = by + strip
     ys = []
     for r in rows:
-        h = (GROUP_H if is_group(r) else ROW_H) * u
+        h = (GROUP_H if is_group(r) else ROW_H) * v
         ys.append((y, h))
         y += h
     bend = y
@@ -826,7 +904,9 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
 
     # --- rows
     for (r, hits), (y, h) in zip(shown, ys):
-        rid, grp, cy = str(r.get('id', '')), is_group(r), y + h / 2 + 4 * u
+        rid, grp = str(r.get('id', '')), is_group(r)
+        mid = y + h / 2                                     # the text and the bars sit on the row's middle
+        cy = mid + 4 * u
         person = isinstance(r, Person)
         if interactive:
             P('<g class="row" %s data-y="%s" data-h="%s"%s><rect class="hov" x="0" y="%s" width="%s" height="%s"/>'
@@ -838,7 +918,7 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
         url = None if grp else resolve_link(r.get('link'), data.get('link_base'), base_dir)
         s, cut = fit(name, tcol - 14 * u - (14 * u if url and interactive else 0), fs)
         t = '<text class="%s" x="%s" y="%s">%s%s</text>' % ('g' if grp else 't', f(8 * u), f(cy), esc(s),
-                                                            '<title>%s</title>' % esc(name) if cut else '')
+                                                            tt(esc(name)) if cut else '')
         if interactive and not person:
             P('<g class="ttl" data-r="%s"><rect class="tc" x="0" y="%s" width="%s" height="%s"/>%s%s</g>'
               % (esc(rid), f(y), f(tcol), f(h), t, '<text class="go" data-href="%s" x="%s" y="%s">↗</text>'
@@ -848,7 +928,7 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
         if ocol and r.get('owner'):
             s, cut = fit(str(r['owner']), ocol - 10 * u, fs)
             P('<text class="mu" x="%s" y="%s">%s%s</text>' % (f(tcol + 6 * u), f(cy), esc(s),
-                                                              '<title>%s</title>' % esc(r['owner']) if cut else ''))
+                                                              tt(esc(r['owner'])) if cut else ''))
         # items: geometry first (the free space to the right of a label ends at the next item)
         geo = []
         for idx, it in enumerate(r.get('items') or [] if not grp else []):
@@ -865,7 +945,7 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
                     geo.append((idx, it, k, 'b', X(c[0]), X(c[1]) + day))
         lefts = sorted(gg[4] for gg in geo)
         for idx, it, k, shape, xl, xr in geo:
-            nxt = next((v for v in lefts if v >= xr - 0.01), W)
+            nxt = next((v_ for v_ in lefts if v_ >= xr - 0.01), W)
             label = str(it.get('label') or '')
             cls = 'bt' + (' bd' if k in ('due', 'ext') else ' mu' if k in ('wait', 'off') else '')
             text, tip = '', esc(it['note']) if it.get('note') else ''
@@ -874,39 +954,39 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
                 if not label:
                     pass
                 elif tw(label, fs) <= inside:
-                    text = '<text class="%s" x="%s" y="%s">%s</text>' % (cls, f(xl + 4 * u), f(y + 16 * u), esc(label))
+                    text = '<text class="%s" x="%s" y="%s">%s</text>' % (cls, f(xl + 4 * u), f(cy), esc(label))
                 elif tw(label, fs) <= nxt - xr - 6 * u:     # not in the bar: to its right, muted
-                    text = '<text class="bt mu" x="%s" y="%s">%s</text>' % (f(xr + 4 * u), f(y + 16 * u), esc(label))
+                    text = '<text class="bt mu" x="%s" y="%s">%s</text>' % (f(xr + 4 * u), f(cy), esc(label))
                 else:
                     s, _ = fit(label, inside, fs)
                     if s:
-                        text = '<text class="%s" x="%s" y="%s">%s<title>%s</title></text>' % (
-                            cls, f(xl + 4 * u), f(y + 16 * u), esc(s), esc(label))
+                        text = '<text class="%s" x="%s" y="%s">%s%s</text>' % (cls, f(xl + 4 * u), f(cy), esc(s),
+                                                                             tt(esc(label)))
                     else:
                         tip = esc(label)                    # not even the ellipsis fits: the full text as a tooltip
             elif label:
                 room = nxt - xr - 5 * u
                 s, cut = fit(label, room, fs)
                 if s:
-                    text = '<text class="%s" x="%s" y="%s">%s%s</text>' % (cls, f(xr + 3 * u), f(y + 16 * u), esc(s),
-                                                                         '<title>%s</title>' % esc(label) if cut else '')
+                    text = '<text class="%s" x="%s" y="%s">%s%s</text>' % (cls, f(xr + 3 * u), f(cy), esc(s),
+                                                                         tt(esc(label)) if cut else '')
                 else:
                     tip = esc(label)
-            tip = '<title>%s</title>' % tip if tip else ''
+            tip = tt(tip) if tip else ''
             attrs = ' data-r="%s" data-i="%d"' % (esc(rid), idx)
             attrs += ' data-on="%s"' % esc(it['on']) if shape == 'm' else ' data-from="%s" data-to="%s"' % (esc(it['from']), esc(it['to']))
             if interactive:
                 P('<g class="it k-%s"%s>' % (k, attrs))
             if idx in hits:                                 # found by the search: a marker behind it
+                hy, hh = (y + 1.5 * v, 21 * v) if shape == 'b' else (mid - 10.5 * u, 21 * u)
                 P('<rect class="qh" x="%s" y="%s" width="%s" height="%s" rx="%s"/>'
-                  % (f(xl - 3 * u), f(y + 1.5 * u), f(xr - xl + 6 * u), f(21 * u), f(4 * u)))
+                  % (f(xl - 3 * u), f(hy), f(xr - xl + 6 * u), f(hh), f(4 * u)))
             if shape == 'b':
                 P('<rect class="b k-%s" x="%s" y="%s" width="%s" height="%s" rx="%s">%s</rect>'
-                  % (k, f(xl), f(y + 4 * u), f(xr - xl), f(16 * u), f(3 * u), tip))
+                  % (k, f(xl), f(y + 4 * v), f(xr - xl), f(16 * v), f(3 * u), tip))
             else:
                 P('<path class="m k-%s" d="M%s %sL%s %sL%s %sL%s %sz">%s</path>'
-                  % (k, f(xl), f(y + 12 * u), f(xl + 6 * u), f(y + 6 * u), f(xr), f(y + 12 * u), f(xl + 6 * u),
-                     f(y + 18 * u), tip))
+                  % (k, f(xl), f(mid), f(xl + 6 * u), f(mid - 6 * u), f(xr), f(mid), f(xl + 6 * u), f(mid + 6 * u), tip))
             if text:
                 P(text)
             if interactive:
@@ -927,35 +1007,41 @@ def _draw(data, day=14, interactive=False, legend=False, today=None, base_dir=No
         if m <= d1 and tw(md(m), 10 * u) <= 7 * day - 4 * u:
             P('<text class="hw mu" x="%s" y="%s">%s</text>' % (f(X(m) + 3 * u), f(31 * u), md(m)))
     if strip:
+        sy = by + strip / 2 + 3 * u
         for (a, b), lb in offs:
             s, _ = fit(str(lb or ''), (b - a).days * day + day - 6 * u, 10 * u) if lb else ('', False)
             if s:
-                P('<text class="sl mu" x="%s" y="%s">%s</text>' % (f(X(a) + 3 * u), f(by + 9 * u), esc(s)))
+                P('<text class="sl mu" x="%s" y="%s">%s</text>' % (f(X(a) + 3 * u), f(sy), esc(s)))
         for d, lb in lines:                    # left of the line, so it stays clear of a holiday label right after it
             xl, lb = X(d) + day / 2, str(lb or '')
             if lb and tw(lb, 10 * u) <= xl - 3 * u - x0:
-                P('<text class="sl lw se" x="%s" y="%s">%s</text>' % (f(xl - 3 * u), f(by + 9 * u), esc(lb)))
+                P('<text class="sl lw se" x="%s" y="%s">%s</text>' % (f(xl - 3 * u), f(sy), esc(lb)))
                 continue
             s, _ = fit(lb, W - xl - 8 * u, 10 * u) if lb else ('', False)
             if s:
-                P('<text class="sl lw" x="%s" y="%s">%s</text>' % (f(xl + 3 * u), f(by + 9 * u), esc(s)))
+                P('<text class="sl lw" x="%s" y="%s">%s</text>' % (f(xl + 3 * u), f(sy), esc(s)))
     o += leg
     found = any(hits for _, hits in shown)
     svg = ('<svg class="gantt%s" xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 0 %s %s"%s>'
            % (' zoom' if zoom else '', f(W), f(H), f(W), f(H),
-              ' data-x0="%s" data-dw="%s" data-d0="%s" data-d1="%s"' % (f(x0), f(day), d0, d1) if interactive else '')
+              ' data-x0="%s" data-dw="%s" data-d0="%s" data-d1="%s" data-hh="%s" data-tc="%s"'
+              % (f(x0), f(day), d0, d1, f(by + strip), f(tcol)) if interactive else '')
            + '<style>%s%s%s</style>' % (CSS if u == 1 else css(u), CSS_UI if interactive else '', CSS_FIND if found else '')
            + DEFS + ''.join(o) + '</svg>')
     return svg, W, H
 
 
-def render(data, day=14, interactive=False, legend=False, today=None, base_dir=None, zoom=False, scale=1.0, query=None,
-           owner=None, by_owner=False):
+def render(data, day=14, interactive=False, legend=False, today=None, base_dir=None, zoom=False, text_scale=1.0,
+           row_scale=1.0, label_width=None, query=None, owner=None, by_owner=False):
     """The chart as one SVG string. base_dir: folder against which relative row links are resolved when the data has
-    no link_base. interactive adds the data-* hooks and hit areas app.html uses; zoom adds class `zoom` to the root.
-    day: pixels per day (6-40, any 0.01). scale: the size of everything else (rows, header, text, columns; 0.8-2.0).
-    query / owner / by_owner: which rows and in what order (view_rows); data-r / data-i stay the data's own."""
-    return _draw(data, day, interactive, legend, today, base_dir, zoom, scale, query, owner, by_owner)[0]
+    no link_base. interactive adds the data-* hooks and hit areas app.html uses (and leaves out the <title> tooltips:
+    the window has its own); zoom adds class `zoom` to the root.
+    day: pixels per day (6-40, any 0.01). text_scale: font, the title and owner columns and the date header (0.8-2.0).
+    row_scale: row heights (0.7-3.0; never below what the text needs). label_width: the title column's width at text
+    scale 1, over the data's label_width. query / owner / by_owner: which rows, in what order (view_rows); data-r /
+    data-i stay the data's own."""
+    return _draw(data, day, interactive, legend, today, base_dir, zoom, text_scale, row_scale, label_width, query, owner,
+                 by_owner)[0]
 
 
 # ---------------------------------------------------------------- png / pdf / share
@@ -1001,7 +1087,7 @@ def page_html(data, svg, w, h, stamp):
 
 def export(data, out, fmt, day=14, scale=2.0, base_dir=None, work=None, view=None):
     """Render `data` to out (.png / .pdf) with headless Edge / Chrome. scale: device pixels per px (PNG). view: more
-    arguments of render (scale, query, owner, by_owner). The page and the browser profile are written under `work`
+    arguments of render (text_scale, row_scale, label_width, query, owner, by_owner). The page and the browser profile are written under `work`
     (default: beside out) and removed afterwards; raises ExportError."""
     exe = find_browser()
     if not exe:
@@ -1072,7 +1158,8 @@ def write_share(path, data):
 # ---------------------------------------------------------------- the page's API (pywebview js_api / POST /api/<name>)
 APP_NAME = 'Agent Gantt'
 RECENT_KEEP = 8
-PREFS = {'day': 14, 'scale': 1.3, 'fit': True, 'by_owner': False}     # the window's defaults (scale: bigger than files)
+PREFS = {'day': 14, 'text': 1.3, 'rows': 1, 'fit': True, 'by_owner': False, 'label_width': None}   # the window's
+# defaults: the text a size bigger than in files; label_width None = the data's
 
 
 def day_of(a, data):
@@ -1082,16 +1169,21 @@ def day_of(a, data):
 
 
 def clean_prefs(p):
-    """The valid window settings in p: day, scale (numbers), fit, by_owner (true / false)."""
+    """The valid window settings in p: day, text, rows (numbers), fit, by_owner (true / false), label_width (a number,
+    or None for the data's). The first version's "scale" is read as text."""
     p = p if isinstance(p, dict) else {}
     out = {}
     if num(p.get('day')):
         out['day'] = clamp_day(p['day'])
-    if num(p.get('scale')):
-        out['scale'] = clamp_scale(p['scale'])
+    if num(p.get('text')) or num(p.get('scale')):
+        out['text'] = clamp_text(p['text'] if num(p.get('text')) else p['scale'])
+    if num(p.get('rows')):
+        out['rows'] = clamp_rows(p['rows'])
     for k in ('fit', 'by_owner'):
         if isinstance(p.get(k), bool):
             out[k] = p[k]
+    if 'label_width' in p and (p['label_width'] is None or num(p['label_width'])):
+        out['label_width'] = None if p['label_width'] is None else clamp_label(p['label_width'])
     return out
 
 
@@ -1105,8 +1197,8 @@ def sans_seen(data):
 
 class Api:
     """What app.html calls. Public names are the API; state is private (pywebview walks public attributes).
-    The view calls take `day` and `view` = {scale, query, owner, by_owner, fit, w, h}; with fit, the day width and the
-    scale are chosen to fill w x h px. path None: no file yet (the window asks for one)."""
+    The view calls take `day` and `view` = {text, rows, label_width, query, owner, by_owner, fit, w, h}; with fit, the
+    day width and the row scale are chosen to fill w x h px. path None: no file yet (the window asks for one)."""
 
     def __init__(self, path=None, day=14, prefs=None):
         self._path = os.path.abspath(path) if path else None
@@ -1141,23 +1233,26 @@ class Api:
         query = v.get('query') if isinstance(v.get('query'), str) else None
         owner = v.get('owner') if isinstance(v.get('owner'), str) and v.get('owner') else None
         by_owner = v.get('by_owner') is True
+        text = clamp_text(v['text'] if num(v.get('text')) else self._prefs['text'])
+        label = v.get('label_width', self._prefs['label_width'])
+        label = clamp_label(label) if num(label) else None
         fitted = None                                       # the size the chart was fitted to
         if v.get('fit') is True and num(v.get('w')) and num(v.get('h')):
-            day, scale = fit_view(data, v['w'], v['h'], by_owner)
+            day, rows = fit_view(data, v['w'], v['h'], by_owner, text, label)
             fitted = [v['w'], v['h']]
         else:
             day = clamp_day(day if num(day) else self._prefs['day'])
-            scale = clamp_scale(v['scale'] if num(v.get('scale')) else self._prefs['scale'])
+            rows = clamp_rows(v['rows'] if num(v.get('rows')) else self._prefs['rows'])
         title = window_title(data, self._path)
         self._set_title(title)
         shown = {r.get('id') for r, _ in view_rows(data, query, owner, by_owner) if not is_group(r)}
-        return {'svg': render(data, day, interactive=True, base_dir=self._dir, scale=scale, query=query, owner=owner,
-                              by_owner=by_owner),
+        return {'svg': render(data, day, interactive=True, base_dir=self._dir, text_scale=text, row_scale=rows,
+                              label_width=label, query=query, owner=owner, by_owner=by_owner),
                 'data': {k: v for k, v in data.items() if k != 'log'}, 'mtime': self._mtime(),
-                'file': os.path.basename(self._path), 'path': self._path, 'title': title, 'day': day, 'scale': scale,
-                'fitted': fitted, 'legend': legend_map(data), 'kinds': list(KINDS), 'share': bool(data.get('share')),
-                'owners': [list(pc) for pc in owners(data)], 'unset': UNSET, 'shown': len(shown),
-                'total': sum(1 for r in data['rows'] if not is_group(r))}
+                'file': os.path.basename(self._path), 'path': self._path, 'title': title, 'day': day, 'text': text,
+                'rows': rows, 'label_width': label, 'fitted': fitted, 'legend': legend_map(data), 'kinds': list(KINDS),
+                'share': bool(data.get('share')), 'owners': [list(pc) for pc in owners(data)], 'members': members(data),
+                'unset': UNSET, 'shown': len(shown), 'total': sum(1 for r in data['rows'] if not is_group(r))}
 
     def get(self, day=None, view=None):
         with self._lock:
@@ -1215,7 +1310,8 @@ class Api:
             return dict(self._view(old, day, view), ok=True)
 
     def prefs(self, change=None):
-        """The window's settings (day, scale, fit, by_owner); `change` sets some of them (the app keeps them)."""
+        """The window's settings (day, text, rows, fit, by_owner, label_width); `change` sets some of them (the app keeps
+        them)."""
         new = clean_prefs(change)
         self._prefs.update(new)
         if new and self._remember:
@@ -1473,7 +1569,7 @@ def cmd_check(a):
 
 def read_last():
     """What the app window remembers (~/.gantt/last.json; the window has no localStorage): file (the last one opened),
-    recent (up to 8, newest first), day, scale, fit, by_owner."""
+    recent (up to 8, newest first), day, text, rows, fit, by_owner, label_width."""
     try:
         with open(os.path.join(HOME, 'last.json'), encoding='utf-8') as fh:
             d = json.load(fh)
@@ -1579,13 +1675,18 @@ def cmd_serve(a):
 
 # selftest: helpers put into the page. drag() replaces the page's commit, so the drag is checked and nothing is written.
 SELFTEST_JS = r'''window.__st = {
+ body: () => document.querySelector('#chart .pn.body svg'),
  state() {
-  const svg = document.querySelector('#chart svg.gantt'), sc = document.getElementById('sc'), t = document.querySelector('#chart text.t');
-  return {svg: !!svg, rows: document.querySelectorAll('#chart g.row[data-r]:not([data-g])').length,
-   items: document.querySelectorAll('#chart g.it').length, marks: document.querySelectorAll('#chart rect.qh').length,
-   heads: [...document.querySelectorAll('#chart g.row[data-p]')].map(g => g.dataset.p), found: document.getElementById('qn').textContent,
-   day: S.day, scale: S.scale, fit: S.fit, sw: svg ? +svg.getAttribute('width') : 0, sh: svg ? +svg.getAttribute('height') : 0,
-   cw: sc.clientWidth, ch: sc.clientHeight, font: t ? getComputedStyle(t).fontSize : '', errors: window.__errors.slice(),
+  const svg = this.body(), sc = document.getElementById('sc'), t = document.querySelector('#chart .pn.body text.t');
+  const row = document.querySelector('#chart .pn.body g.row[data-r]:not([data-g])');
+  return {svg: !!svg, nrows: document.querySelectorAll('#chart .pn.body g.row[data-r]:not([data-g])').length,
+   items: document.querySelectorAll('#chart .pn.body g.it').length, marks: document.querySelectorAll('#chart .pn.body rect.qh').length,
+   heads: [...document.querySelectorAll('#chart .pn.body g.row[data-p]')].map(g => g.dataset.p), found: document.getElementById('qn').textContent,
+   day: S.day, text: S.text, rows: S.rows, labelW: S.labelW, fit: S.fit, by: S.byOwner, person: S.person,
+   sw: svg ? +svg.getAttribute('width') : 0, sh: svg ? +svg.getAttribute('height') : 0, tc: svg ? +svg.dataset.tc : 0,
+   rowh: row ? +row.dataset.h : 0, cw: sc.clientWidth, ch: sc.clientHeight, font: t ? getComputedStyle(t).fontSize : '',
+   pressed: [document.getElementById('bOrder').getAttribute('aria-pressed'), document.getElementById('bBy').getAttribute('aria-pressed')],
+   members: S.members, errors: window.__errors.slice(),
    storage: (function () { try { localStorage.setItem('gantt.t', '1'); localStorage.removeItem('gantt.t'); return 'ok'; } catch (e) { return 'blocked'; } })()};
  },
  bar() {
@@ -1603,7 +1704,11 @@ SELFTEST_JS = r'''window.__st = {
   return its.length ? its[Math.floor(its.length / 2)].label : '';
  },
  find(text) { const q = document.getElementById('q'); q.value = text; q.dispatchEvent(new Event('input')); },
- who(i) { const s = document.getElementById('who'); s.value = i < 0 ? '' : s.options[i].value; s.dispatchEvent(new Event('change')); return s.value; },
+ person() {                                 // the first person of the 担当 list (not 未定): [value, its text]
+  const o = [...document.getElementById('who').options].find(o => !o.disabled && o.value && o.value !== S.unset);
+  return o ? [o.value, o.textContent] : null;
+ },
+ who(name) { const s = document.getElementById('who'); s.value = name; s.dispatchEvent(new Event('change')); return s.value; },
  ids() {                                    // every data-r / data-i of the chart is a row / item of the data
   const rows = new Map(S.data.rows.map(r => [r.id, r]));
   for (const g of document.querySelectorAll('#chart g.it')) {
@@ -1611,12 +1716,52 @@ SELFTEST_JS = r'''window.__st = {
    if (!it) return 'no item ' + g.dataset.r + ' ' + g.dataset.i;
    if ((g.dataset.on || null) !== (it.on || null) || (g.dataset.from || null) !== (it.from || null)) return 'other item ' + g.dataset.r + ' ' + g.dataset.i;
   }
-  return 'ok';
+  return document.querySelectorAll('#chart [id="gt-h"]').length === 1 ? 'ok' : 'duplicate pattern ids';
+ },
+ frozen() {                                 // scrolled down and right: where the four copies are, against the scroller
+  const sc = document.getElementById('sc');
+  sc.scrollTop = 300; sc.scrollLeft = 200;
+  const r = sc.getBoundingClientRect(), q = c => document.querySelector('#chart .pn.' + c).getBoundingClientRect();
+  const out = {st: sc.scrollTop, sl: sc.scrollLeft, head: [q('head').top - r.top, q('head').left - r.left + sc.scrollLeft],
+   left: [q('left').left - r.left, q('left').top - r.top + sc.scrollTop], corner: [q('corner').top - r.top, q('corner').left - r.left],
+   body: [q('body').top - r.top + sc.scrollTop, q('body').left - r.left + sc.scrollLeft]};
+  return out;
+ },
+ hover() {                                  // the mouse over a bar (one with a memo if there is one)
+  const its = [...document.querySelectorAll('#chart .pn.body g.it')];
+  const with_ = its.find(g => { const r = S.data.rows.find(x => x.id === g.dataset.r); return r && (r.items[+g.dataset.i] || {}).note; });
+  const g = with_ || its[0], r = S.data.rows.find(x => x.id === g.dataset.r), it = r.items[+g.dataset.i];
+  const box = g.querySelector('rect.b,path.m').getBoundingClientRect();
+  g.querySelector('rect.b,path.m').dispatchEvent(new MouseEvent('mousemove', {bubbles: true, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2}));
+  return {note: it.note || '', label: it.label || ''};
+ },
+ tipText() { const h = document.getElementById('hover'); return h.hidden ? null : h.textContent; },
+ wheel(ctrl) {                              // Ctrl / Alt + wheel over the timeline
+  const sc = document.getElementById('sc'), r = sc.getBoundingClientRect(), G = geom();
+  this.body().dispatchEvent(new WheelEvent('wheel', {deltaY: -100, ctrlKey: ctrl, altKey: !ctrl, bubbles: true, cancelable: true,
+   clientX: r.left + G.x0 + 80, clientY: r.top + G.hh + 40}));
+ },
+ col(dx) {                                  // drag the column handle by dx px
+  const rz = document.querySelector('#chart .pn.left .rz'), r = rz.getBoundingClientRect(), x = r.left + 3, y = r.top + 100;
+  rz.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, button: 0, clientX: x, clientY: y}));
+  window.dispatchEvent(new MouseEvent('mousemove', {clientX: x + dx, clientY: y}));
+  window.dispatchEvent(new MouseEvent('mouseup', {clientX: x + dx, clientY: y}));
+ },
+ colReset() { document.querySelector('#chart .pn.left .rz').dispatchEvent(new MouseEvent('dblclick', {bubbles: true})); },
+ head(name) {                               // click a person's header of the by-person view
+  const g = [...document.querySelectorAll('#chart .pn.body g.row[data-p]')].find(g => g.dataset.p === name);
+  g.querySelector('rect.hov').dispatchEvent(new MouseEvent('click', {bubbles: true}));
+  return S.person;
+ },
+ rename(to) {
+  const inp = document.querySelector('#drawer [data-pn]');
+  inp.value = to;
+  document.querySelector('#drawer [data-act=rename]').click();
  },
  drag() {                                   // drag the last bar drawn (with room) by 3 days; the op is caught, not written
   window.__ops = null;
   window.commit = async ops => { window.__ops = ops; return null; };
-  const G = geom(), bars = [...document.querySelectorAll('#chart g.it')].filter(g => g.querySelector('rect.b')
+  const G = geom(), bars = [...document.querySelectorAll('#chart .pn.body g.it')].filter(g => g.querySelector('rect.b')
    && pd(g.dataset.from) >= G.d0 && pd(g.dataset.to) + 3 <= G.d1);
   if (!bars.length) return null;
   const g = bars[bars.length - 1], r = g.querySelector('rect.b').getBoundingClientRect();
@@ -1642,9 +1787,15 @@ def _until(win, cond, secs=10.0):
     return False
 
 
-def _selftest_steps(win, res):
-    """Load, then the toolbar's layout, scale, search, the person filter, the by-person view (with a dry drag) and the
-    fit mode. Appends report lines and problems to res."""
+def _fills(s):
+    """The fitted chart fills the visible width (unless the day width is at its limit)."""
+    return not (s['sw'] > s['cw'] + 0.5 or (s['sw'] < s['cw'] - 2 and s['day'] < 40))
+
+
+def _selftest_steps(win, res, write=False):
+    """Load, then: the toolbar, the fit, the text size, search, the person filter, the view switch with the by-person view
+    (rename with write; a dry drag), Ctrl / Alt + wheel, the frozen header and columns, the hover details, the column
+    handle, and the fit after a resize. Appends report lines and problems to res."""
     js = win.evaluate_js
     out, bad = res['lines'], res['bad']
 
@@ -1656,79 +1807,132 @@ def _selftest_steps(win, res):
         js(code)
         if not _until(win, 'S.gen > %d && !S.inflight && !S.again' % gen):
             raise RuntimeError('no new chart after %s' % what)
+        _until(win, '!S.inflight && !S.again', 2)
         return state()
 
-    if not _until(win, 'typeof S === "object" && S.gen > 0 && !S.inflight && !!document.querySelector("#chart svg.gantt")', 25):
+    if not _until(win, 'typeof S === "object" && S.gen > 0 && !S.inflight && !!document.querySelector("#chart .pn.body svg")', 25):
         raise RuntimeError('the chart did not appear')
     _until(win, '!S.inflight && !S.again', 3)
     js(SELFTEST_JS)
-    s = state()
-    out.append('page: rows=%s items=%s localStorage=%s' % (s['rows'], s['items'], s['storage']))
+    s = base = state()
+    out.append('page: rows=%s items=%s localStorage=%s' % (s['nrows'], s['items'], s['storage']))
     b = json.loads(js('JSON.stringify(__st.bar())'))
     out.append('toolbar: %dx%d overflow=%s title=%dpx legend=%s file-button=%s'
                % (b['w'], b['h'], ','.join(b['over']) or 'none', b['title'], 'folded' if b['folded'] else 'open', b['file']))
     if b['over'] or b['h'] != 46:
         bad.append('toolbar does not fit')
     if s['fit'] and s['cw'] > 200:
-        out.append('fit: day=%s scale=%s chart %sx%s in %sx%s' % (s['day'], s['scale'], s['sw'], s['sh'], s['cw'], s['ch']))
-        if s['sw'] > s['cw'] + 0.5 or (s['sw'] < s['cw'] - 2 and s['day'] < 40):
+        out.append('fit: day=%s rows=%s text=%s chart %sx%s in %sx%s' % (s['day'], s['rows'], s['text'], s['sw'], s['sh'],
+                                                                         s['cw'], s['ch']))
+        if not _fills(s):
             bad.append('fit: the chart does not fill the width')
-    base = s
-    up = base['scale'] < SCALE_MAX                     # 文字 ＋, or − when it is already the biggest
+
+    up = base['text'] < TEXT_MAX                       # 文字 ＋, or − when it is already the biggest
     s = step('document.getElementById("%s").click()' % ('bTextIn' if up else 'bTextOut'), 'text size')
-    out.append('scale: %s -> %s, text %s -> %s, fit %s' % (base['scale'], s['scale'], base['font'], s['font'],
-                                                          'on' if s['fit'] else 'off'))
     fonts = float(s['font'][:-2] or 0), float(base['font'][:-2] or 0)
-    if s['fit'] or (s['scale'] > base['scale'] and fonts[0] > fonts[1]) != up or s['scale'] == base['scale']:
-        bad.append('scale')
+    out.append('text: %s -> %s, font %s -> %s, fit %s (day %s, rows %s)' % (
+        base['text'], s['text'], base['font'], s['font'], 'on' if s['fit'] else 'off', s['day'], s['rows']))
+    if (s['text'] > base['text'] and fonts[0] > fonts[1]) != up or s['text'] == base['text'] or s['fit'] != base['fit']:
+        bad.append('text size')
+
     word = js('__st.word()')
     s = step('__st.find(%s)' % json.dumps(word), 'search')
-    out.append('search %r: rows %s of %s, marked %s, box %r' % (word, s['rows'], base['rows'], s['marks'], s['found']))
-    if not (0 < s['rows'] <= base['rows'] and s['marks'] > 0):
+    out.append('search %r: rows %s of %s, marked %s, box %r' % (word, s['nrows'], base['nrows'], s['marks'], s['found']))
+    if not (0 < s['nrows'] <= base['nrows'] and s['marks'] > 0):
         bad.append('search')
     s = step('__st.find("")', 'clear search')
-    if s['rows'] != base['rows'] or s['marks']:
+    if s['nrows'] != base['nrows'] or s['marks']:
         bad.append('search not cleared')
-    who = js('document.getElementById("who").options[1] ? document.getElementById("who").options[1].value : ""')
+    who = json.loads(js('JSON.stringify(__st.person())'))
     if who:
-        label = js('document.getElementById("who").options[1].textContent')
-        s = step('__st.who(1)', 'person filter')
-        out.append('person %r (%s): rows %s' % (who, label, s['rows']))
-        if not 0 < s['rows'] < base['rows'] + 1 or ('（%d）' % s['rows']) not in label:
+        s = step('__st.who(%s)' % json.dumps(who[0]), 'person filter')
+        out.append('person %r (%s): rows %s' % (who[0], who[1], s['nrows']))
+        if not 0 < s['nrows'] <= base['nrows'] or ('（%d 件）' % s['nrows']) not in who[1]:
             bad.append('person filter')
-        step('__st.who(-1)', 'all people')
+        step('__st.who("")', 'all people')
+
     s = step('document.getElementById("bBy").click()', 'by person')
     ids = js('__st.ids()')
+    out.append('view 担当ごと: buttons %s, %d headers (%s), ids %s' % (
+        s['pressed'], len(s['heads']), '、'.join(s['heads'][:4]) + ('…' if len(s['heads']) > 4 else ''), ids))
+    if s['pressed'] != ['false', 'true'] or not s['heads'] or ids != 'ok':
+        bad.append('by-person view')
+    if write and who:
+        before = s['members'].get(who[0], [])
+        js('__st.head(%s)' % json.dumps(who[0]))
+        _until(win, 'S.person !== null && !!document.querySelector("#drawer [data-pn]")', 3)
+        s = step('__st.rename("ZZテスト")', 'rename')
+        renamed = s['members'].get('ZZテスト') == before and who[0] not in s['members']
+        s = step('document.getElementById("bUndo").click()', 'undo the rename')
+        back = s['members'].get(who[0]) == before and 'ZZテスト' not in s['members']
+        out.append('rename %r -> "ZZテスト": %d rows %s, 取り消し %s' % (who[0], len(before), 'ok' if renamed else 'FAILED',
+                                                                           'ok' if back else 'FAILED'))
+        if not (renamed and back):
+            bad.append('rename')
+        js('closeDrawer()')
     drag = json.loads(js('JSON.stringify(__st.drag())'))
     _until(win, 'window.__ops !== null', 3)
     ops = json.loads(js('JSON.stringify(window.__ops)'))
-    moved = ''
     if drag and ops:
         o = ops[0]
         want = {k: (dt.date.fromisoformat(drag[k]) + dt.timedelta(days=3)).isoformat() for k in ('from', 'to')}
-        moved = '%s item %s %s..%s -> %s..%s' % (o.get('row'), o.get('i'), drag['from'], drag['to'],
-                                                 o['set'].get('from'), o['set'].get('to'))
+        out.append('drag in 担当ごと: %s item %s %s..%s -> %s..%s (not written)' % (
+            o.get('row'), o.get('i'), drag['from'], drag['to'], o['set'].get('from'), o['set'].get('to')))
         if (o.get('op'), o.get('row'), o.get('i'), o.get('set')) != ('item', drag['row'], drag['i'], want):
-            bad.append('drag in the by-person view: %s' % moved)
+            bad.append('drag in the by-person view')
     else:
         bad.append('drag in the by-person view: no op')
-    out.append('by person: %d headers (%s), data ids %s, drag %s (not written)'
-               % (len(s['heads']), '、'.join(s['heads'][:4]) + ('…' if len(s['heads']) > 4 else ''), ids, moved))
-    if not s['heads'] or ids != 'ok':
-        bad.append('by person')
     js('window.commit = undefined')                    # nothing more may write
-    step('document.getElementById("bBy").click()', 'by person off')
+    s = step('document.getElementById("bOrder").click()', 'item order')
+    if s['pressed'] != ['true', 'false'] or s['heads']:
+        bad.append('item-order view')
+
+    a = state()
+    s = step('__st.wheel(true)', 'Ctrl+wheel')
+    b = step('__st.wheel(false)', 'Alt+wheel')
+    out.append('Ctrl+wheel: day %s -> %s (rows %s, text %s); Alt+wheel: rows %s -> %s, row height %s -> %s (day %s, text %s)'
+               % (a['day'], s['day'], s['rows'], s['text'], s['rows'], b['rows'], s['rowh'], b['rowh'], b['day'], b['text']))
+    if not (s['day'] > a['day'] and s['rows'] == a['rows'] and s['text'] == a['text'] and not s['fit']):
+        bad.append('Ctrl+wheel')
+    if not (b['rowh'] > s['rowh'] and b['day'] == s['day'] and b['text'] == s['text']):
+        bad.append('Alt+wheel')
+
+    f = json.loads(js('JSON.stringify(__st.frozen())'))
+    out.append('frozen at scroll %s,%s: header %s, columns %s, corner %s, body %s'
+               % (f['sl'], f['st'], [round(x, 1) for x in f['head']], [round(x, 1) for x in f['left']],
+                  [round(x, 1) for x in f['corner']], [round(x, 1) for x in f['body']]))
+    if f['st'] <= 0 or f['sl'] <= 0 or any(abs(x) > 0.5 for x in f['head'] + f['left'] + f['corner'] + f['body']):
+        bad.append('frozen panes')
+
+    want = json.loads(js('JSON.stringify(__st.hover())'))
+    _until(win, '__st.tipText() !== null', 2)
+    text = js('__st.tipText()') or ''
+    out.append('hover: %r' % (text[:90] + ('…' if len(text) > 90 else '')))
+    if (want['note'] or want['label']) not in text:
+        bad.append('hover details')
+    js('hideTip()')
+
+    tc = state()['tc']
+    s = step('__st.col(60)', 'column handle')
+    out.append('column handle +60px: item column %s -> %s px (label_width %s)' % (tc, s['tc'], s['labelW']))
+    if abs(s['tc'] - (tc + 60)) > s['text'] / 2 + 0.05:
+        bad.append('column handle')
+    s = step('__st.colReset()', 'column reset')
+    if s['labelW'] is not None or abs(s['tc'] - tc) > 0.05:
+        bad.append('column reset')
+
     s = step('document.getElementById("bFit").click()', 'fit')
-    out.append('fit again: day=%s scale=%s chart %sx%s in %sx%s' % (s['day'], s['scale'], s['sw'], s['sh'], s['cw'], s['ch']))
-    if not s['fit'] or s['sw'] > s['cw'] + 0.5 or (s['sw'] < s['cw'] - 2 and s['day'] < 40):
+    out.append('fit again: day=%s rows=%s text=%s chart %sx%s in %sx%s' % (s['day'], s['rows'], s['text'], s['sw'], s['sh'],
+                                                                           s['cw'], s['ch']))
+    if not s['fit'] or not _fills(s):
         bad.append('fit')
     gen, cw = js('S.gen'), s['cw']
     win.resize(1500, 1000)                             # still hidden: the chart follows the new size
     if _until(win, 'S.gen > %d && !S.inflight && !S.again && document.getElementById("sc").clientWidth > %d' % (gen, cw + 100), 6):
         _until(win, '!S.inflight && !S.again', 2)
         s = state()
-        out.append('resized: day=%s scale=%s chart %sx%s in %sx%s' % (s['day'], s['scale'], s['sw'], s['sh'], s['cw'], s['ch']))
-        if s['sw'] > s['cw'] + 0.5 or (s['sw'] < s['cw'] - 2 and s['day'] < 40):
+        out.append('resized: day=%s rows=%s chart %sx%s in %sx%s' % (s['day'], s['rows'], s['sw'], s['sh'], s['cw'], s['ch']))
+        if not _fills(s):
             bad.append('fit after a resize')
     else:
         bad.append('no new fit after a resize')
@@ -1736,14 +1940,17 @@ def _selftest_steps(win, res):
 
 
 def cmd_selftest(a):
-    """Open the window hidden (1280 x 900) on FILE and drive the page; nothing is written to FILE or to last.json."""
+    """Open the window hidden (1280 x 900) on FILE and drive the page. Nothing is written to FILE or to last.json; with
+    --write the rename of a person is done too (and undone), and FILE gets its old bytes back afterwards."""
     path = need_file(a.file)
     api = Api(path, day_of(a, load_or_exit(path)))
+    with open(path, 'rb') as fh:
+        original = fh.read()
     res = {'lines': [], 'bad': [], 'errors': []}
 
     def run(win):
         try:
-            _selftest_steps(win, res)
+            _selftest_steps(win, res, a.write)
             try:                                           # is the window icon ours? (blue square, not the default)
                 from webview.platforms.winforms import BrowserView
                 bmp = BrowserView.instances[win.uid].Icon.ToBitmap()
@@ -1760,7 +1967,16 @@ def cmd_selftest(a):
         finally:
             win.destroy()
 
-    start_gui(api, 'gantt selftest', True, run, STORE + '-selftest', size=(1280, 900))
+    try:
+        start_gui(api, 'gantt selftest', True, run, STORE + '-selftest', size=(1280, 900))
+    finally:
+        with open(path, 'rb') as fh:
+            changed = fh.read() != original
+        if changed and a.write:
+            write_bytes(path, original)
+            res['lines'].append('file: written by the rename, old bytes put back')
+        elif changed:
+            res['bad'].append('the file changed')
     ok = not res['bad'] and not res['errors'] and 'error' not in res
     print('selftest: %s  errors=%s icon=%s%s' % ('ok' if ok else 'FAILED', res['errors'], res.get('icon'),
                                                  '  ' + res['error'] if 'error' in res else ''))
@@ -1811,8 +2027,9 @@ def main():
     s.add_argument('--all', action='store_true', help='every user entry, not only the new ones')
     s = sub.add_parser('check', help='validate')
     s.add_argument('file')
-    s = sub.add_parser('selftest', help='open the app hidden and check that the page loads')
+    s = sub.add_parser('selftest', help='open the app hidden and drive it')
     s.add_argument('file')
+    s.add_argument('--write', action='store_true', help='also rename a person and undo it (on a copy: the file is put back)')
     day(s)
     a = p.parse_args()
     {'app': cmd_app, 'serve': cmd_serve, 'svg': cmd_svg, 'png': cmd_image, 'pdf': cmd_image, 'share': cmd_share,

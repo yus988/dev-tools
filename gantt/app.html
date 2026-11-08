@@ -17,11 +17,12 @@
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink);font:13px/1.4 "Yu Gothic UI","Meiryo","Hiragino Sans",sans-serif;
  display:flex;flex-direction:column;overflow:hidden}
+body.colresize,body.colresize *{cursor:ew-resize!important}
 button,select,input{font:inherit;color:var(--ink)}
 button{cursor:pointer}
 
 /* toolbar: one row of fixed height; buttons of one size; nothing moves when a state changes */
-#bar{flex:none;height:46px;display:flex;align-items:center;gap:6px;padding:0 10px;background:var(--card);
+#bar{flex:none;height:46px;display:flex;align-items:center;gap:5px;padding:0 10px;background:var(--card);
  border-bottom:1px solid var(--line);overflow:hidden}
 #ttl{flex:0 1 200px;min-width:0;margin-right:2px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tb{flex:none;width:66px;height:28px;padding:0;font-size:12px;font-weight:400;background:var(--head);
@@ -30,19 +31,24 @@ button{cursor:pointer}
 .tb:active{font-weight:400;background:var(--line)}
 .tb:disabled{opacity:.5;cursor:default}
 .tb[aria-pressed="true"]{background:var(--rec);border-color:var(--recs)}
-.tb.sq{width:28px;font-size:15px;line-height:1}
-.stp,.who{flex:none;display:flex;align-items:center;gap:2px}
+.tb.sq{width:24px;font-size:15px;line-height:1}
+.stp,.who,.seg{flex:none;display:flex;align-items:center;gap:2px}
 .who{gap:4px}
+.seg{gap:0}
+.seg .tb{width:62px;border-radius:0}
+.seg .tb:first-child{border-radius:6px 0 0 6px}
+.seg .tb:last-child{border-radius:0 6px 6px 0;margin-left:-1px}
+.seg .tb[aria-pressed="true"]{background:var(--recs);border-color:var(--recs);color:var(--card)}
 .cap{flex:none;padding:0 2px;color:var(--muted);font-size:12px}
-.find{position:relative;flex:none;width:176px;height:28px}
-#q{width:100%;height:28px;padding:0 52px 0 8px;font-size:12px;background:var(--card);border:1px solid var(--line);
+.find{position:relative;flex:none;width:156px;height:28px}
+#q{width:100%;height:28px;padding:0 50px 0 8px;font-size:12px;background:var(--card);border:1px solid var(--line);
  border-radius:6px}
 #q:focus{outline:none;border-color:var(--recs)}
 #qn{position:absolute;right:28px;top:0;line-height:28px;font-size:11px;color:var(--muted);pointer-events:none}
 #qx{position:absolute;right:2px;top:2px;width:24px;height:24px;padding:0;font-size:14px;color:var(--muted);
  background:transparent;border:0;border-radius:4px}
 #qx:hover{background:var(--head)}
-#who{width:112px;height:28px;padding:0 4px;font-size:12px;background:var(--card);border:1px solid var(--line);border-radius:6px}
+#who{width:108px;height:28px;padding:0 4px;font-size:12px;background:var(--card);border:1px solid var(--line);border-radius:6px}
 #legend{flex:1 1 0;min-width:0;max-height:40px;display:flex;flex-wrap:wrap;align-content:center;align-items:center;
  overflow:hidden;color:var(--muted);font-size:11.5px;line-height:1.3}
 #lgList{display:flex;flex-wrap:wrap;gap:1px 12px;margin-left:4px}
@@ -62,9 +68,12 @@ button{cursor:pointer}
 .sw.k-wait{background:repeating-linear-gradient(90deg,var(--line) 0 2px,transparent 2px 5px)}
 .sw.k-off{background:var(--line)}
 .sw.k-done{background:var(--ok);border-color:var(--oks)}
-#status{flex:0 1 120px;width:120px;min-width:64px;text-align:right;white-space:nowrap;overflow:hidden;
- text-overflow:ellipsis;color:var(--muted);font-size:12px}
-#status.err{color:var(--ngs)}
+/* the status floats over the chart's lower right corner: the toolbar keeps its room for the buttons */
+#status{position:fixed;right:22px;bottom:22px;z-index:6;max-width:46vw;padding:2px 9px;white-space:nowrap;overflow:hidden;
+ text-overflow:ellipsis;color:var(--muted);font-size:12px;background:var(--card);border:1px solid var(--line);
+ border-radius:4px;pointer-events:none}
+#status:empty{display:none}
+#status.err{color:var(--ngs);border-color:var(--ngs)}
 
 /* file menu */
 #menu{position:fixed;top:44px;z-index:8;min-width:300px;max-width:560px;max-height:70vh;overflow:auto;padding:4px 0;
@@ -77,20 +86,35 @@ button{cursor:pointer}
 .mn{padding:6px 14px;color:var(--muted)}
 #menu hr{margin:4px 0}
 
-/* chart */
+/* chart: four copies of one SVG in one grid cell; the date header, the title columns and their corner stay put */
 #sc{flex:1;min-height:0;overflow:auto;background:var(--card)}
-#chart{width:max-content;user-select:none;-webkit-user-select:none}
-#chart svg{display:block;max-width:none}
+#chart{display:grid;width:max-content;user-select:none;-webkit-user-select:none}
+.pn{grid-area:1/1;overflow:hidden;background:var(--card)}
+.pn.left,.pn.head,.pn.corner{position:sticky;align-self:start;justify-self:start}
+.pn.left{left:0;z-index:2;box-shadow:1px 0 0 var(--line)}
+.pn.head{top:0;z-index:3;box-shadow:0 1px 0 var(--line)}
+.pn.corner{top:0;left:0;z-index:4}
+.pn svg{display:block;max-width:none}
+.rz{position:absolute;top:0;right:0;width:7px;height:100%;z-index:1;cursor:ew-resize}
+.rz:hover,body.colresize .rz{background:linear-gradient(to right,transparent 5px,var(--recs) 5px)}
 .empty{padding:40px 24px;color:var(--muted);font-size:14px}
 .gantt text{cursor:inherit}
-.gantt .row:hover .hov{fill:var(--ink);fill-opacity:.05}
+.gantt .row.hv .hov{fill:var(--ink);fill-opacity:.05}
 .gantt .row.cur .hov{fill:var(--accent);fill-opacity:.08}
+.gantt g.row[data-p]{cursor:pointer}
 .gantt g.row[data-p] text.g{fill:var(--recs)}
 .gantt .it.sel .b,.gantt .it.sel .m{stroke:var(--accent);stroke-width:2}
 .gantt .ttl,.gantt .ttl *,.gantt .go{cursor:pointer}
 .gantt .rs text,.gantt .rs .qh{display:none}
 #tip{position:fixed;z-index:9;pointer-events:none;padding:2px 7px;font-size:12px;white-space:nowrap;
  background:var(--ink);color:var(--card);border-radius:3px}
+/* the details of a bar, a milestone, a row or a person: never in the way of the mouse */
+#hover{position:fixed;z-index:10;pointer-events:none;max-width:360px;padding:6px 10px;font-size:12px;line-height:1.5;
+ color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 16px rgba(0,0,0,.18);
+ overflow-wrap:anywhere}
+#hover .ht{color:var(--muted)}
+#hover .hk{color:var(--muted)}
+#hover .hn{margin-top:4px;padding-top:4px;border-top:1px solid var(--line);white-space:pre-wrap}
 
 /* drawer: overlay of a fixed width, the chart does not move */
 #drawer{position:fixed;top:46px;right:0;bottom:0;width:340px;z-index:5;overflow:auto;background:var(--card);
@@ -100,6 +124,7 @@ button{cursor:pointer}
 .x{width:28px;height:28px;padding:0;background:transparent;border:1px solid transparent;border-radius:6px}
 .x:hover{border-color:var(--line)}
 .dbody{padding:8px 12px 18px}
+.dnote{margin:6px 0;color:var(--muted);font-size:12px}
 .fl{display:flex;align-items:center;gap:8px;margin:6px 0}
 .fl>span{flex:none;width:44px;color:var(--muted);font-size:12px}
 .fl input,.fl select,.fl textarea{flex:1;min-width:0;padding:4px 6px;font:inherit;color:var(--ink);background:var(--card);
@@ -113,8 +138,13 @@ button{cursor:pointer}
 .itm.hl{border-left-color:var(--accent)}
 .ih{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:12px}
 .btns{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.btns.one{grid-template-columns:1fr}
 .btns button{height:28px;font-size:12px;font-weight:400;background:var(--head);border:1px solid var(--line);border-radius:6px}
 .btns button:hover,.sm:hover{border-color:var(--recs)}
+.pr{display:block;width:100%;margin:2px 0;padding:4px 6px;text-align:left;background:transparent;border:1px solid transparent;
+ border-radius:4px}
+.pr:hover{border-color:var(--line);background:var(--head)}
+.pr span{display:block;color:var(--muted);font-size:11.5px}
 hr{border:0;border-top:1px solid var(--line);margin:12px 0 4px}
 </style>
 </head>
@@ -126,44 +156,59 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0 4px}
  <button class="tb need" id="bAddGroup">区切り追加</button>
  <button class="tb need" id="bUndo" title="元に戻す（Ctrl+Z）">取り消し</button>
  <span class="stp"><span class="cap">期間</span><button class="tb sq need" id="bOut" aria-label="期間の縮小"
-  title="期間を縮める（1 日の幅を狭く）">−</button><button class="tb sq need" id="bIn" aria-label="期間の拡大"
-  title="期間を広げる（1 日の幅を広く）">＋</button></span>
+  title="期間を縮める（1 日の幅を狭く。Ctrl+ホイール）">−</button><button class="tb sq need" id="bIn" aria-label="期間の拡大"
+  title="期間を広げる（1 日の幅を広く。Ctrl+ホイール）">＋</button></span>
+ <span class="stp"><span class="cap">行</span><button class="tb sq need" id="bRowsOut" aria-label="行の高さの縮小"
+  title="行を低く（Alt+ホイール）">−</button><button class="tb sq need" id="bRowsIn" aria-label="行の高さの拡大"
+  title="行を高く（Alt+ホイール）">＋</button></span>
  <span class="stp"><span class="cap">文字</span><button class="tb sq need" id="bTextOut" aria-label="文字の縮小"
-  title="文字を小さく（行・見出し・列も。Ctrl+− / Ctrl+ホイール）">−</button><button class="tb sq need" id="bTextIn"
-  aria-label="文字の拡大" title="文字を大きく（行・見出し・列も。Ctrl+＋ / Ctrl+ホイール）">＋</button></span>
- <button class="tb need" id="bFit" aria-pressed="true" title="窓に合わせる（期間を窓の幅に、行を窓の高さに）">全体表示</button>
+  title="文字を小さく（項目と担当の列も。Ctrl+−）">−</button><button class="tb sq need" id="bTextIn" aria-label="文字の拡大"
+  title="文字を大きく（項目と担当の列も。Ctrl+＋）">＋</button></span>
+ <button class="tb need" id="bFit" aria-pressed="true" title="窓に合わせる（期間を窓の幅に、行を窓の高さに。文字の大きさはそのまま）">全体表示</button>
  <button class="tb need" id="bToday">今日</button>
  <span class="find"><input id="q" class="need" placeholder="検索" autocomplete="off" spellcheck="false"
   title="項目・担当・メモ・バーの名前で絞り込み（Ctrl+F、Esc で消去）"><span id="qn"></span><button id="qx" title="検索の消去（Esc）"
   hidden>×</button></span>
- <span class="who"><label class="cap" for="who">担当</label><select id="who" class="need"
-  title="この人の行だけ表示"><option value="">すべて</option></select></span>
- <button class="tb need" id="bBy" aria-pressed="false" title="担当ごとに並べる（表示だけ。データの並びは変えない）">担当ごと</button>
+ <span class="who"><label class="cap" for="who"
+  title="担当の欄の名前で分けます。括弧の中は数えません。「・」「、」で区切ると複数の人。同じ名前は同じ人。">担当</label><select
+  id="who" class="need" title="この人の行だけ表示"><option value="">すべて</option></select></span>
+ <span class="seg"><button class="tb need" id="bOrder" aria-pressed="true" title="データの順（区切りごと）に並べる">項目順</button><button
+  class="tb need" id="bBy" aria-pressed="false" title="担当の人ごとに並べる（表示だけ。データの順は変えない）">担当ごと</button></span>
  <button class="tb" id="bShare" title="共有用に書き出し（データの share）" hidden>書き出し</button>
  <div id="legend"><button class="tb" id="bLegend">凡例</button><div id="lgList"></div></div>
- <div id="status"></div>
 </div>
 <div id="menu" role="menu" hidden></div>
 <div id="sc"><div id="chart"></div></div>
 <aside id="drawer" hidden></aside>
+<div id="status"></div>
 <div id="tip" hidden></div>
+<div id="hover" hidden></div>
 <datalist id="people"></datalist>
 <script>
 'use strict';
 window.__errors = [];
 const $ = id => document.getElementById(id);
-function setStatus(text, err) { const s = $('status'); s.textContent = text; s.title = text; s.classList.toggle('err', !!err); }
+let statusTimer = null;
+function setStatus(text, err) {
+  const s = $('status');
+  s.textContent = text; s.title = text; s.classList.toggle('err', !!err);
+  clearTimeout(statusTimer);
+  if (!err) statusTimer = setTimeout(() => { if (s.textContent === text) s.textContent = ''; }, 6000);
+}
 function fail(m) { window.__errors.push(String(m)); setStatus('エラー: ' + m, true); }
 window.addEventListener('error', e => fail(e.message || e.error));
 window.addEventListener('unhandledrejection', e => fail((e.reason && e.reason.message) || e.reason));
 
-const ZOOMS = [6, 8, 10, 14, 18, 24, 32];                          // day widths of 期間 − / ＋
-const SCALES = [0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.45, 1.6, 1.8, 2];     // sizes of 文字 − / ＋ (about 10 % a step)
-const S = {day: 14, scale: 1.3, fit: true, byOwner: false, query: '', owner: '', manual: {day: 14, scale: 1.3},
-           data: null, svg: '', mtime: '', file: '', path: '', nofile: false, share: false, unset: '未定',
-           legend: {}, kinds: [], sel: null, drawer: null, busy: false, inflight: false, again: false, loop: null,
-           gen: 0, sig: '', reveal: false, fitAt: null, refits: 0, ownSig: '', lgSig: '', wheelAt: 0, size: ''};
-let drag = null;
+const ZOOMS = [6, 8, 10, 14, 18, 24, 32, 40];                       // day widths of 期間 − / ＋
+const ROWS = [0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.4, 3];   // row scales of 行 − / ＋
+const TEXTS = [0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.45, 1.6, 1.8, 2];      // text scales of 文字 − / ＋ (about 10 % a step)
+const HELP = ['担当の欄の名前で分けます。括弧の中は数えません。', '「・」「、」で区切ると複数の人。同じ名前は同じ人。'];
+const S = {day: 14, text: 1.3, rows: 1, labelW: null, fit: true, byOwner: false, query: '', owner: '',
+           manual: {day: 14, rows: 1}, data: null, svg: '', mtime: '', file: '', path: '', nofile: false, share: false,
+           unset: '未定', members: {}, legend: {}, kinds: [], sel: null, drawer: null, person: null, busy: false,
+           inflight: false, again: false, loop: null, gen: 0, sig: '', reveal: false, fitAt: null, refits: 0, ownSig: '',
+           lgSig: '', size: '', hoverY: null, tip: null, tipKey: '', tipTimer: null, mx: 0, my: 0};
+let drag = null, colDrag = null;
 
 // ---- API: pywebview (desktop window) or POST /api/<name> (browser)
 const HTTP = location.protocol === 'http:' || location.protocol === 'https:';
@@ -186,9 +231,12 @@ const DAY = 86400000;
 const pd = s => { const m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(s || ''); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY : null; };
 const fd = n => new Date(n * DAY).toISOString().slice(0, 10);
 const md = n => { const d = new Date(n * DAY); return (d.getUTCMonth() + 1) + '/' + d.getUTCDate(); };
+const dl = n => md(n) + '（' + '日月火水木金土'[new Date(n * DAY).getUTCDay()] + '）';
 const todayN = () => { const d = new Date(); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAY; };
 const hm = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const clamp = (v, a, b, q) => Math.round(Math.max(a, Math.min(b, v)) * q) / q;
+const clampDay = v => clamp(v, 6, 40, 100), clampRows = v => clamp(v, 0.7, 3, 100), clampLabel = v => clamp(v, 120, 1200, 1);
 
 // ---- state
 const rowOf = id => S.data && S.data.rows.find(r => r.id === id);
@@ -197,9 +245,9 @@ const isMs = it => it.on != null;
 const snap = it => { const o = {}; for (const k of ['from', 'to', 'on', 'label', 'kind']) if (it[k] != null) o[k] = it[k]; return o; };
 const itemName = it => it.label || '無題';
 
-// what the chart shows besides the data: sent with every call; with fit, Python picks the day width and the scale
+// what the chart shows besides the data: sent with every call; with fit, Python picks the day width and the row scale
 function view() {
-  const sc = $('sc'), v = {scale: S.scale, query: S.query, owner: S.owner, by_owner: S.byOwner};
+  const sc = $('sc'), v = {text: S.text, rows: S.rows, label_width: S.labelW, query: S.query, owner: S.owner, by_owner: S.byOwner};
   if (S.fit && sc.clientWidth > 200 && sc.clientHeight > 80) { v.fit = true; v.w = sc.clientWidth; v.h = sc.clientHeight; }
   return v;
 }
@@ -209,8 +257,8 @@ function take(res) {
   if (res.nofile) { S.nofile = true; S.data = null; S.svg = ''; S.mtime = ''; empty(); return; }
   S.nofile = false;
   S.data = res.data; S.svg = res.svg; S.mtime = res.mtime;
-  S.day = res.day; S.scale = res.scale; S.fitAt = res.fitted || null;
-  S.file = res.file; S.path = res.path; S.share = !!res.share;
+  S.day = res.day; S.text = res.text; S.rows = res.rows; S.labelW = res.label_width; S.fitAt = res.fitted || null;
+  S.file = res.file; S.path = res.path; S.share = !!res.share; S.members = res.members || {};
   if (res.unset) S.unset = res.unset;
   if (res.kinds) S.kinds = res.kinds;
   if (res.legend) setLegend(res.legend);
@@ -224,10 +272,17 @@ function take(res) {
   paint();
   checkFit();
 }
-function paint() {
-  const sc = $('sc'), l = sc.scrollLeft, t = sc.scrollTop;
-  $('chart').innerHTML = S.svg;
+function paint() {                       // the body, then the frozen title columns, date header and their corner on top
+  const sc = $('sc'), l = sc.scrollLeft, t = sc.scrollTop, svg = S.svg, root = svg.slice(0, svg.indexOf('>'));
+  const at = k => +((new RegExp(' ' + k + '="([^"]*)"').exec(root) || [0, 0])[1]);
+  const W = at('width'), H = at('height'), x0 = at('data-x0'), hh = at('data-hh');
+  const copy = n => svg.replace(/(id="|url\(#)gt-([hw])(?=[")])/g, '$1gt-$2' + n);      // ids stay unique in the page
+  const pane = (cls, w, h, n, extra) => '<div class="pn ' + cls + '" style="width:' + w + 'px;height:' + h + 'px">' + copy(n) + extra + '</div>';
+  const rz = '<div class="rz" title="ドラッグで項目の列の幅を変更（ダブルクリックで元の幅）"></div>';
+  $('chart').innerHTML = '<div class="pn body">' + svg + '</div>' + pane('left', x0, H, 1, rz) + pane('head', W, hh, 2, '')
+                       + pane('corner', x0, hh, 3, rz);
   sc.scrollLeft = l; sc.scrollTop = t;
+  S.hoverY = null;
   mark();
   syncDrawer();
 }
@@ -242,14 +297,16 @@ function need(on) { for (const el of document.querySelectorAll('.need')) el.disa
 function mark() {
   for (const g of document.querySelectorAll('#chart g.it'))
     g.classList.toggle('sel', !!S.sel && g.dataset.r === S.sel.r && +g.dataset.i === S.sel.i);
-  for (const g of document.querySelectorAll('#chart g.row')) g.classList.toggle('cur', g.dataset.r === S.drawer);
+  for (const g of document.querySelectorAll('#chart g.row'))
+    g.classList.toggle('cur', g.dataset.r === S.drawer || (S.person != null && g.dataset.p === S.person));
 }
-function geom() {
-  const svg = $('chart').querySelector('svg');
+function geom() {                          // the body copy: its box is the whole chart's
+  const svg = document.querySelector('#chart .pn.body svg');
   if (!svg) return null;
   const r = svg.getBoundingClientRect();
   return {left: r.left, top: r.top, k: r.width / svg.viewBox.baseVal.width, x0: +svg.dataset.x0, dw: +svg.dataset.dw,
-          d0: pd(svg.dataset.d0), d1: pd(svg.dataset.d1), h: +svg.getAttribute('height')};
+          d0: pd(svg.dataset.d0), d1: pd(svg.dataset.d1), h: +svg.getAttribute('height'), hh: +svg.dataset.hh,
+          tc: +svg.dataset.tc};
 }
 function again() { if (S.inflight) S.again = true; else refresh(); }
 function refresh() {                       // render again with the current view; calls while one runs are folded into it
@@ -281,11 +338,11 @@ async function commit(ops) {
   return null;
 }
 async function poll() {
-  if (drag || S.busy || S.inflight || !S.mtime || S.nofile) return;
+  if (drag || colDrag || S.busy || S.inflight || !S.mtime || S.nofile) return;
   const gen = S.gen;
   try {
     const res = await api('poll', S.mtime, S.day, view());
-    if (!res || gen !== S.gen || drag || S.busy || S.inflight) return;
+    if (!res || gen !== S.gen || drag || colDrag || S.busy || S.inflight) return;
     if (res.error) { setStatus('読めません: ' + res.error, true); return; }
     take(res);
     setStatus('外で更新 ' + hm());
@@ -299,7 +356,65 @@ function savePrefs(p) {
   api('prefs', p).catch(e => fail(e.message || e));
 }
 function setFit(on) { S.fit = on; $('bFit').setAttribute('aria-pressed', String(on)); }
-function manual() { setFit(false); S.manual = {day: S.day, scale: S.scale}; savePrefs({day: S.day, scale: S.scale, fit: false}); }
+function manual() { setFit(false); S.manual = {day: S.day, rows: S.rows}; savePrefs({day: S.day, rows: S.rows, fit: false}); }
+function setView(by) {
+  S.byOwner = by;
+  $('bBy').setAttribute('aria-pressed', String(by));
+  $('bOrder').setAttribute('aria-pressed', String(!by));
+}
+
+// ---- zoom: 期間 (day width, Ctrl+wheel), 行 (row scale, Alt+wheel), 文字 (text scale, Ctrl + / −)
+function anchorX(at) {                     // the date under the mouse (else the middle of the timeline) and where it is
+  const sc = $('sc'), G = geom();
+  if (!G) return null;
+  let ax = at ? at.clientX - sc.getBoundingClientRect().left : -1;
+  if (ax < G.x0 || ax > sc.clientWidth) ax = (G.x0 + sc.clientWidth) / 2;
+  return {ax: ax, date: (sc.scrollLeft + ax - G.x0) / G.dw};
+}
+function keepX(a) { const sc = $('sc'), G = geom(); if (a && G) sc.scrollLeft = Math.max(0, G.x0 + a.date * G.dw - a.ax); }
+function anchorY(at) {                     // the place in the rows under the mouse (else the middle) and where it is
+  const sc = $('sc'), G = geom();
+  if (!G) return null;
+  let ay = at ? at.clientY - sc.getBoundingClientRect().top : -1;
+  if (ay < G.hh || ay > sc.clientHeight) ay = (G.hh + sc.clientHeight) / 2;
+  return {ay: ay, f: (sc.scrollTop + ay - G.hh) / Math.max(1, G.h - 1 - G.hh)};
+}
+function keepY(a) { const sc = $('sc'), G = geom(); if (a && G) sc.scrollTop = Math.max(0, G.hh + a.f * (G.h - 1 - G.hh) - a.ay); }
+const step = (list, cur, dir) => dir > 0 ? list.find(z => z > cur + 0.001) : [...list].reverse().find(z => z < cur - 0.001);
+async function zoomDay(nd, at) {
+  if (S.nofile || !nd) return;
+  const a = anchorX(at);
+  S.day = clampDay(nd);
+  manual();
+  await refresh();
+  keepX(a);
+}
+async function zoomRows(nr, at) {          // rows never get lower than the text: from the height they have now
+  if (S.nofile || !nr) return;
+  if (nr < S.text - 0.001 && S.rows <= S.text + 0.001) { setStatus('行は文字より低くできません（文字 − で小さく）'); return; }
+  const a = anchorY(at);
+  S.rows = clampRows(Math.max(nr, S.text));
+  manual();
+  await refresh();
+  keepY(a);
+}
+async function zoomText(dir) {             // the fit stays: it sets the day width and the rows around the text
+  if (S.nofile) return;
+  const nt = step(TEXTS, S.text, dir);
+  if (!nt) return;
+  const a = anchorX(null), b = anchorY(null);
+  S.text = nt;
+  savePrefs({text: nt});
+  await refresh();
+  keepX(a); keepY(b);
+}
+const rowsNow = () => Math.max(S.rows, S.text);
+function scrollToday(quiet) {
+  const G = geom(), t = todayN(), sc = $('sc');
+  if (!G) return;
+  if (t < G.d0 || t > G.d1) { if (!quiet) setStatus('今日は範囲の外'); return; }
+  sc.scrollLeft = Math.max(0, G.x0 + (t - G.d0) * G.dw + G.dw / 2 - (G.x0 + sc.clientWidth) / 2);
+}
 
 // ---- toolbar
 async function addRow(after, row) {
@@ -310,8 +425,9 @@ async function addRow(after, row) {
   openDrawer(nr.id, null);
   const inp = $('drawer').querySelector('[data-f=title],[data-f=group]');
   if (inp) { inp.focus(); inp.select(); }
-  const g = [...document.querySelectorAll('#chart g.row')].find(x => x.dataset.r === nr.id), sc = $('sc');
-  if (g && (+g.dataset.y < sc.scrollTop || +g.dataset.y > sc.scrollTop + sc.clientHeight - 60)) sc.scrollTop = Math.max(0, +g.dataset.y - 80);
+  const g = document.querySelector('#chart .pn.body g.row[data-r="' + CSS.escape(nr.id) + '"]'), sc = $('sc'), G = geom();
+  if (g && G && (+g.dataset.y < sc.scrollTop + G.hh || +g.dataset.y > sc.scrollTop + sc.clientHeight - 60))
+    sc.scrollTop = Math.max(0, +g.dataset.y - G.hh - 40);
 }
 async function doUndo() {
   if (S.nofile) return;
@@ -321,36 +437,6 @@ async function doUndo() {
     if (res.ok) { take(res); setStatus('元に戻しました ' + hm()); } else setStatus(res.error || 'エラー', true);
   } catch (e) { fail(e.message || e); }
   finally { S.busy = false; }
-}
-const step = (list, cur, dir) => dir > 0 ? list.find(z => z > cur + 0.001) : [...list].reverse().find(z => z < cur - 0.001);
-async function zoomDay(dir) {              // 期間: the day width only; the date in the middle stays in the middle
-  if (S.nofile) return;
-  const sc = $('sc'), G = geom(), nd = step(ZOOMS, S.day, dir);
-  const centre = G ? (sc.scrollLeft + sc.clientWidth / 2 - G.x0) / G.dw : null;
-  if (nd) S.day = nd;
-  manual();
-  await refresh();
-  const G2 = geom();
-  if (G2 && centre !== null) sc.scrollLeft = Math.max(0, G2.x0 + centre * G2.dw - sc.clientWidth / 2);
-}
-async function zoomText(dir, at) {         // 文字: the whole chart's scale; the point under the mouse stays there
-  if (S.nofile) return;
-  const sc = $('sc'), G = geom(), ns = step(SCALES, S.scale, dir), box = sc.getBoundingClientRect();
-  const ax = at ? at.x - box.left : sc.clientWidth / 2, ay = at ? at.y - box.top : sc.clientHeight / 2;
-  const date = G ? (sc.scrollLeft + ax - G.x0) / G.dw : -1, fy = G ? (sc.scrollTop + ay) / G.h : 0;
-  if (ns) S.scale = ns;
-  manual();
-  await refresh();
-  const G2 = geom();
-  if (!G2) return;
-  if (date >= 0) sc.scrollLeft = Math.max(0, G2.x0 + date * G2.dw - ax);
-  sc.scrollTop = Math.max(0, fy * G2.h - ay);
-}
-function scrollToday(quiet) {
-  const G = geom(), t = todayN(), sc = $('sc');
-  if (!G) return;
-  if (t < G.d0 || t > G.d1) { if (!quiet) setStatus('今日は範囲の外'); return; }
-  sc.scrollLeft = Math.max(0, G.x0 + (t - G.d0) * G.dw + G.dw / 2 - sc.clientWidth / 2);
 }
 async function doShare() {
   const b = $('bShare');
@@ -365,26 +451,30 @@ async function doShare() {
 $('bAddRow').onclick = () => addRow(S.drawer, {title: '新しい行'});
 $('bAddGroup').onclick = () => addRow(S.drawer, {group: '新しい区切り'});
 $('bUndo').onclick = doUndo;
-$('bOut').onclick = () => zoomDay(-1);
-$('bIn').onclick = () => zoomDay(1);
+$('bOut').onclick = () => zoomDay(step(ZOOMS, S.day, -1));
+$('bIn').onclick = () => zoomDay(step(ZOOMS, S.day, 1));
+$('bRowsOut').onclick = () => zoomRows(step(ROWS, rowsNow(), -1));
+$('bRowsIn').onclick = () => zoomRows(step(ROWS, rowsNow(), 1));
 $('bTextOut').onclick = () => zoomText(-1);
 $('bTextIn').onclick = () => zoomText(1);
 $('bFit').onclick = () => {
   setFit(!S.fit);
-  if (!S.fit) { S.day = S.manual.day; S.scale = S.manual.scale; }      // back to the last size chosen by hand
+  if (!S.fit) { S.day = S.manual.day; S.rows = S.manual.rows; }      // back to the last size chosen by hand
   S.refits = 0;
   savePrefs({fit: S.fit});
   refresh();
 };
 $('bToday').onclick = () => scrollToday(false);
 $('bShare').onclick = doShare;
-$('bBy').onclick = () => {
-  S.byOwner = !S.byOwner;
-  $('bBy').setAttribute('aria-pressed', String(S.byOwner));
+function switchView(by) {
+  if (S.byOwner === by) return;
+  setView(by);
   S.refits = 0;
-  savePrefs({by_owner: S.byOwner});
+  savePrefs({by_owner: by});
   refresh();
-};
+}
+$('bOrder').onclick = () => switchView(false);
+$('bBy').onclick = () => switchView(true);
 
 // ---- search and the person filter (both only change what is drawn)
 let findTimer = null;
@@ -406,8 +496,8 @@ function setOwners(list) {
   const sel = $('who'), sig = JSON.stringify(list);
   if (sig !== S.ownSig) {
     S.ownSig = sig;
-    sel.innerHTML = '<option value="">すべて</option>'
-      + list.map(([p, n]) => '<option value="' + esc(p) + '">' + esc(p) + '（' + n + '）</option>').join('');
+    sel.innerHTML = HELP.map(t => '<option disabled>' + esc(t) + '</option>').join('') + '<option value="">すべて</option>'
+      + list.map(([p, n]) => '<option value="' + esc(p) + '">' + esc(p) + '（' + n + ' 件）</option>').join('');
     $('people').innerHTML = list.filter(([p]) => p !== S.unset).map(([p]) => '<option value="' + esc(p) + '">').join('');
   }
   if (S.owner && !list.some(([p]) => p === S.owner)) { S.owner = ''; again(); }     // nobody of that name any more
@@ -484,9 +574,9 @@ $('menu').addEventListener('click', e => {
 });
 document.addEventListener('mousedown', e => { if (!$('menu').hidden && !e.target.closest('#menu,#bFile')) $('menu').hidden = true; });
 
-// ---- drawer
+// ---- drawer: a row, or a person of the by-person view (rename)
 function openDrawer(rid, i, focusName) {
-  S.drawer = rid;
+  S.drawer = rid; S.person = null;
   S.sel = i == null ? null : {r: rid, i: i};
   S.reveal = i != null;
   mark();
@@ -496,7 +586,8 @@ function openDrawer(rid, i, focusName) {
     if (inp) { inp.focus(); inp.select(); }
   }
 }
-function closeDrawer() { S.drawer = null; S.sel = null; $('drawer').hidden = true; mark(); }
+function openPerson(p) { S.drawer = null; S.person = p; S.sel = null; mark(); syncDrawer(); }
+function closeDrawer() { S.drawer = null; S.person = null; S.sel = null; $('drawer').hidden = true; mark(); }
 function drawerHTML(r) {
   const grp = isGroup(r);
   let h = '<div class="dh"><b>' + (grp ? '区切り' : '行') + '</b><button class="x" data-act="close" title="閉じる">✕</button></div><div class="dbody">';
@@ -523,12 +614,34 @@ function drawerHTML(r) {
   return h + '<div class="btns"><button data-act="up">上へ</button><button data-act="down">下へ</button>'
            + '<button data-act="addrow">下に行を追加</button><button data-act="delrow">行を削除</button></div></div>';
 }
+function personHTML(p) {
+  const ids = S.members[p] || [];
+  return '<div class="dh"><b>担当</b><button class="x" data-act="close" title="閉じる">✕</button></div><div class="dbody">'
+    + '<p class="dnote">' + esc(HELP.join('')) + '</p>'
+    + '<label class="fl"><span>名前</span><input data-pn></label>'
+    + '<div class="btns one"><button data-act="rename">名前の変更</button></div>'
+    + '<p class="dnote">すべての行の担当の欄で、この名前を置き換えます（ほかの人と括弧の中はそのまま）。取り消しで一度に戻せます。'
+    + (p === S.unset ? '担当の欄が空の行は変わりません。各行の担当の欄に名前を入れてください。' : '') + '</p><hr>'
+    + '<div class="dnote">' + esc(p) + ' の行（' + ids.length + ' 件）</div>'
+    + ids.map(id => { const r = rowOf(id); return r ? '<button class="pr" data-act="row" data-r="' + esc(id) + '">'
+        + esc(r.title || id) + '<span>' + esc(r.owner || '（担当なし）') + '</span></button>' : ''; }).join('')
+    + '</div>';
+}
 function setVal(inp, v) {
   v = v == null ? '' : String(v);
   if (document.activeElement !== inp && inp.value !== v) inp.value = v;     // never under the cursor
 }
 function syncDrawer() {
   const el = $('drawer');
+  if (S.person != null) {
+    if (!S.members[S.person]) { closeDrawer(); return; }
+    el.hidden = false;
+    const sig = 'p|' + S.person + '|' + S.members[S.person].map(id => { const r = rowOf(id); return id + '=' + (r && r.title) + '/' + (r && r.owner); }).join('|');
+    if (sig !== S.sig) { S.sig = sig; el.innerHTML = personHTML(S.person); }
+    const inp = el.querySelector('[data-pn]');
+    if (inp && document.activeElement !== inp) inp.value = S.person;
+    return;
+  }
   if (!S.drawer) { el.hidden = true; return; }
   const r = rowOf(S.drawer);
   if (!r) { closeDrawer(); return; }
@@ -561,6 +674,14 @@ async function applyField(t) {
     await commit([{op: 'item', row: r.id, i: i, expect: snap(it), set: {[k]: v}}]);
   }
 }
+async function renamePerson() {            // one apply: one 取り消し undoes every row
+  const p = S.person, inp = $('drawer').querySelector('[data-pn]'), to = inp ? inp.value.trim() : '';
+  if (p == null || !to || to === p) return;
+  if (S.owner === p) S.owner = to;
+  const res = await commit([{op: 'rename_person', from: p, to: to}]);
+  if (!res) return;
+  if (res.members && res.members[to]) openPerson(to); else closeDrawer();
+}
 const timers = new Map();          // a date field fires `change` for every valid value while typing: apply once it settles
 function later(t) { clearTimeout(timers.get(t)); timers.set(t, setTimeout(() => { timers.delete(t); applyField(t); }, 600)); }
 function flush(t) { if (timers.has(t)) { clearTimeout(timers.get(t)); timers.delete(t); applyField(t); } }
@@ -582,8 +703,11 @@ async function addItem(r, ms) {
   if (res) openDrawer(r.id, rowOf(r.id).items.length - 1, true);
 }
 async function act(b) {
-  const r = rowOf(S.drawer), a = b.dataset.act;
+  const a = b.dataset.act;
   if (a === 'close') return closeDrawer();
+  if (a === 'rename') return renamePerson();
+  if (a === 'row') return openDrawer(b.dataset.r, null);
+  const r = rowOf(S.drawer);
   if (!r) return;
   if (a === 'openlink') {
     const g = [...document.querySelectorAll('#chart g.ttl')].find(x => x.dataset.r === r.id), go = g && g.querySelector('.go');
@@ -603,8 +727,52 @@ async function act(b) {
 $('drawer').addEventListener('change', e => { if (e.target.type === 'date') later(e.target); else applyField(e.target); });
 $('drawer').addEventListener('focusout', e => flush(e.target));
 $('drawer').addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (b) act(b); });
+$('drawer').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('[data-pn]')) renamePerson(); });
 
-// ---- chart: drag, click, double-click (data-r / data-i are the data's own, also in a filtered or by-person view)
+// ---- hover details: a bar or milestone, a row title, a person header (after 150 ms; never under the pointer)
+function whenText(it) {
+  if (isMs(it)) { const a = pd(it.on); return a === null ? String(it.on) : dl(a); }
+  const a = pd(it.from), b = pd(it.to);
+  if (a === null || b === null) return (it.from || '') + '〜' + (it.to || '');
+  let w = 0;
+  for (let d = a; d <= b; d++) { const k = new Date(d * DAY).getUTCDay(); if (k > 0 && k < 6) w++; }
+  return dl(a) + '〜' + dl(b) + '・' + (b - a + 1) + ' 日（平日 ' + w + ' 日）';
+}
+function tipHTML(t) {
+  const kv = (k, v) => '<span class="hk">' + k + '</span> ' + esc(v);
+  if (t.p != null) return '<b>' + esc(t.p) + '</b>（' + (S.members[t.p] || []).length + ' 件）<div class="hk">クリックで名前の変更</div>';
+  const r = rowOf(t.r);
+  if (!r) return '';
+  if (t.i == null) {
+    let h = '<b>' + esc(r.title || r.group || r.id) + '</b>';
+    if (r.owner) h += '<div>' + kv('担当', r.owner) + '</div>';
+    if (t.href || r.link) h += '<div>' + kv('リンク', t.href || r.link) + '</div>';
+    return h + (r.note ? '<div class="hn">' + esc(r.note) + '</div>' : '');
+  }
+  const it = (r.items || [])[t.i];
+  if (!it) return '';
+  const kind = S.kinds.includes(it.kind) ? it.kind : 'plan';
+  return '<div class="ht">' + esc(r.title || r.id) + '</div><b>' + esc(itemName(it)) + '</b><div>' + esc(whenText(it)) + '</div>'
+       + '<div>' + kv('種類', S.legend[kind] || kind) + (r.owner ? '　' + kv('担当', r.owner) : '') + '</div>'
+       + (it.note ? '<div class="hn">' + esc(it.note) + '</div>' : '');
+}
+function placeTip() {
+  const el = $('hover'), w = el.offsetWidth, h = el.offsetHeight;
+  let x = S.mx + 14, y = S.my + 18;
+  if (x + w > innerWidth - 8) x = Math.max(8, S.mx - w - 12);        // flip at the right and bottom edges
+  if (y + h > innerHeight - 8) y = Math.max(8, S.my - h - 12);
+  el.style.left = x + 'px'; el.style.top = y + 'px';
+}
+function hideTip() { clearTimeout(S.tipTimer); S.tipKey = ''; S.tip = null; $('hover').hidden = true; }
+function showTip() {
+  const html = S.tip ? tipHTML(S.tip) : '';
+  if (!html || drag || colDrag) return;
+  $('hover').innerHTML = html;
+  $('hover').hidden = false;
+  placeTip();
+}
+
+// ---- chart: drag, click, double-click, hover, the column handle (data-r / data-i are the data's own in every view)
 const chart = $('chart');
 function modeAt(g, clientX) {                       // within 5 px of a bar's end: resize (bars of 14 px or more)
   const b = g.querySelector('rect.b');
@@ -615,6 +783,13 @@ function modeAt(g, clientX) {                       // within 5 px of a bar's en
 }
 chart.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
+  hideTip();
+  if (e.target.closest('.rz')) {
+    e.preventDefault();
+    const G = geom();
+    if (G) { colDrag = {x: e.clientX, tc: G.tc, text: S.text}; document.body.classList.add('colresize'); }
+    return;
+  }
   const g = e.target.closest('g.it');
   if (!g) return;
   const r = rowOf(g.dataset.r), it = r && r.items[+g.dataset.i];
@@ -641,6 +816,11 @@ function preview() {
   $('tip').textContent = isMs(drag.it) ? md(a) : md(a) + '〜' + md(b) + '（' + (b - a + 1) + '日）';
 }
 window.addEventListener('mousemove', e => {
+  if (colDrag) {                                    // the title column follows the mouse
+    const w = clampLabel((colDrag.tc + e.clientX - colDrag.x) / colDrag.text);
+    if (w !== S.labelW) { S.labelW = w; again(); }
+    return;
+  }
   if (!drag) {
     const g = e.target.closest && e.target.closest('#chart g.it');
     chart.style.cursor = g ? (modeAt(g, e.clientX) === 'move' ? 'move' : 'ew-resize') : '';
@@ -659,6 +839,12 @@ window.addEventListener('mousemove', e => {
 });
 function endDrag() { $('tip').hidden = true; chart.style.cursor = ''; drag = null; }
 window.addEventListener('mouseup', async () => {
+  if (colDrag) {
+    colDrag = null;
+    document.body.classList.remove('colresize');
+    savePrefs({label_width: S.labelW});
+    return;
+  }
   if (!drag) return;
   const d = drag;
   endDrag();
@@ -668,14 +854,41 @@ window.addEventListener('mouseup', async () => {
   else { if (d.mode !== 'r') set.from = sh(it.from, d.dd); if (d.mode !== 'l') set.to = sh(it.to, d.dd); }
   if (!await commit([{op: 'item', row: d.rid, i: d.i, expect: snap(it), set: set}])) paint();
 });
+chart.addEventListener('mousemove', e => {
+  S.mx = e.clientX; S.my = e.clientY;
+  if (drag || colDrag) return;
+  const it = e.target.closest('g.it'), tl = !it && e.target.closest('g.ttl'), ph = !it && !tl && e.target.closest('g.row[data-p]');
+  const go = tl && tl.querySelector('.go');
+  const t = it ? {r: it.dataset.r, i: +it.dataset.i} : tl ? {r: tl.dataset.r, href: go ? go.dataset.href : ''} : ph ? {p: ph.dataset.p} : null;
+  const key = t ? JSON.stringify(t) : '';
+  if (key !== S.tipKey) {
+    hideTip();
+    S.tipKey = key; S.tip = t;
+    if (t) S.tipTimer = setTimeout(showTip, 150);
+  } else if (!$('hover').hidden) placeTip();
+});
+chart.addEventListener('mouseleave', () => { hideTip(); setHover(null); });
+$('sc').addEventListener('scroll', hideTip, {passive: true});
+function setHover(y) {                              // the row under the mouse, lit in every copy
+  if (y === S.hoverY) return;
+  S.hoverY = y;
+  for (const g of document.querySelectorAll('#chart g.row.hv')) g.classList.remove('hv');
+  if (y != null) for (const g of document.querySelectorAll('#chart g.row[data-y="' + y + '"]')) g.classList.add('hv');
+}
+chart.addEventListener('mouseover', e => { const g = e.target.closest && e.target.closest('g.row'); setHover(g ? g.dataset.y : null); });
 chart.addEventListener('click', e => {
   const go = e.target.closest('.go');
   if (go) { api('open_link', go.dataset.href).catch(err => fail(err.message || err)); return; }
   const t = e.target.closest('g.ttl');
   if (t) { openDrawer(t.dataset.r, null); return; }
+  const ph = e.target.closest('g.row[data-p]');
+  if (ph) { openPerson(ph.dataset.p); return; }
   if (e.target.closest('rect.hit')) { S.sel = null; mark(); }
 });
 chart.addEventListener('dblclick', async e => {
+  if (e.target.closest('.rz')) {                    // the title column back to the data's width
+    S.labelW = null; savePrefs({label_width: null}); refresh(); return;
+  }
   const h = e.target.closest('rect.hit');
   if (!h) return;
   const rid = h.closest('g.row').dataset.r, G = geom();
@@ -684,7 +897,7 @@ chart.addEventListener('dblclick', async e => {
   if (res) openDrawer(rid, rowOf(rid).items.length - 1, true);
 });
 
-// ---- keys, Ctrl + wheel
+// ---- keys, wheel
 window.addEventListener('keydown', e => {
   const tag = (document.activeElement && document.activeElement.tagName) || '';
   const inField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
@@ -693,6 +906,7 @@ window.addEventListener('keydown', e => {
   if (mod && (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract')) { e.preventDefault(); zoomText(-1); return; }
   if (mod && !e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); $('q').focus(); $('q').select(); return; }
   if (e.key === 'Escape') {
+    hideTip();
     if (!$('menu').hidden) $('menu').hidden = true;
     else if (drag) { endDrag(); paint(); } else closeDrawer();
     return;
@@ -700,13 +914,15 @@ window.addEventListener('keydown', e => {
   if (mod && !e.shiftKey && e.key.toLowerCase() === 'z' && !inField) { e.preventDefault(); doUndo(); return; }
   if (e.key === 'Delete' && !inField && S.sel && !drag) { e.preventDefault(); delItem(rowOf(S.sel.r), S.sel.i); }
 });
-window.addEventListener('wheel', e => {
-  if (!e.ctrlKey && !e.metaKey) return;
-  e.preventDefault();                               // no page zoom: the chart's own scale instead
-  const now = Date.now();
-  if (!e.deltaY || now - S.wheelAt < 60) return;
-  S.wheelAt = now;
-  zoomText(e.deltaY < 0 ? 1 : -1, {x: e.clientX, y: e.clientY});
+window.addEventListener('wheel', e => {             // Ctrl: the day width at the mouse's date; Alt: the rows at its row
+  const ctrl = e.ctrlKey || e.metaKey;
+  if (!ctrl && !e.altKey) return;
+  e.preventDefault();                               // no page zoom
+  hideTip();
+  const raw = e.deltaY || e.deltaX, d = e.deltaMode === 1 ? raw * 33 : e.deltaMode === 2 ? raw * 400 : raw;
+  if (!d || S.nofile) return;
+  const k = Math.max(0.7, Math.min(1.45, Math.exp(-d * 0.0015)));
+  if (ctrl) zoomDay(S.day * k, e); else zoomRows(rowsNow() * k, e);
 }, {passive: false});
 let resizeTimer = null;
 function resized() {                                // the window changed size (not a scrollbar: those are checkFit's)
@@ -717,7 +933,7 @@ function resized() {                                // the window changed size (
 }
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(resized, 150); });
 function tick() {                                   // every second: a resize the event missed (a hidden window), the file
-  if (S.size && S.size !== innerWidth + 'x' + innerHeight && !drag) resized();
+  if (S.size && S.size !== innerWidth + 'x' + innerHeight && !drag && !colDrag) resized();
   poll();
 }
 
@@ -725,10 +941,10 @@ function tick() {                                   // every second: a resize th
 (async function () {
   try {
     const p = await api('prefs', HTTP ? local() : null);
-    S.day = p.day; S.scale = p.scale; S.manual = {day: p.day, scale: p.scale};
+    S.day = p.day; S.text = p.text; S.rows = p.rows; S.labelW = p.label_width == null ? null : p.label_width;
+    S.manual = {day: p.day, rows: p.rows};
     setFit(p.fit !== false);
-    S.byOwner = p.by_owner === true;
-    $('bBy').setAttribute('aria-pressed', String(S.byOwner));
+    setView(p.by_owner === true);
     $('bFile').hidden = HTTP;                       // a browser has no file dialog: serve shows its one file
     await refresh();
     if (S.nofile) { if (!HTTP) switchTo('pick'); }
